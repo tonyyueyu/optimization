@@ -1,6 +1,7 @@
 import ollama
 import numpy as np
 import pinecone
+import json
 
 PINECONE_API_KEY = "pcsk_bpvp5_KwTepQWna8UPTFAzZCkCTSQqMnLUNwtwCh3nhm1Rx2ogExfb5BpHQLGCVKYf4Bz"
 PINECONE_ENV = "us-west1-gcp"
@@ -15,15 +16,12 @@ index = pinecone.Index(index_name)
 
 EMBEDDING_MODEL = 'hf.co/CompendiumLabs/bge-base-en-v1.5-gguf'
 
-def make_embedding(chunk, chunk_id):
-    embed = ollama.embed(model = EMBEDDING_MODEL, input = chunk)['embeddings'][0]
-    index.upsert([(chunk_id, embed, {"text": chunk})])
+def store_problem(json_obj):
+    problem_id = str(json_obj['id'])
 
-def retrive_questions(query, top_n = 2):
-    query_embed = ollama.embed(model = EMBEDDING_MODEL, input = query)['embeddings'][0]
-    
-    results = index.query(vector=query_embed, top_k=top_n, include_metadata=True)
+    embed = ollama.embed( model=EMBEDDING_MODEL, input=json_obj["problem"] )["embeddings"][0]
 
-    top_chunks = []
+    index.upsert([(problem_id, embed, {"json": json.dumps(json_obj)})])
 
-    #Process each result based on input structure
+    print(f"Stored problem {problem_id}")
+
