@@ -22,36 +22,54 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
-    
+
     try {
       const retrieveResponse = await fetch('http://localhost:5000/api/retrieve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userMessage.content, top_n: 2 })
       });
-      
+
       if (!retrieveResponse.ok) {
         throw new Error('Failed to retrieve relevant problems');
       }
 
       const retrievedProblems = await retrieveResponse.json();
+      console.log('Retrieved Problems:', retrievedProblems);
       const first = retrievedProblems[0];
       const second = retrievedProblems[1];
-
-      //add logic for sending problem to gemini api and then validating each step;
 
       const steps = await fetch('http://localhost:5000/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ problem: first, second_problem: second, user_query: userMessage.content })
+        body: JSON.stringify({
+          problem: first,
+          second_problem: second,
+          user_query: userMessage.content
+        })
       });
 
-      if(!steps.ok) {
+      // Read response body ONCE
+      const raw = await steps.text();
+
+      if (!steps.ok) {
+        console.error("Server returned error:", raw);
         throw new Error('Failed to get solution steps. Please try again later.');
       }
-      else {
-        //add logic for dispalying response step by step
+
+      // Parse JSON only after confirming success
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (err) {
+        console.error("Invalid JSON from server:", raw);
+        throw new Error("Server returned invalid JSON.");
       }
+
+      console.log('Solution Steps:', data);
+      // Add logic for displaying response step by step
+
+
     }
     catch (error) {
       console.error('Error:', error);

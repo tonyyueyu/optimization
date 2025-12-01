@@ -21,7 +21,7 @@ if index_name not in [i.name for i in pc.list_indexes()]:
 
 index = pc.Index(index_name)
 
-with open('dataset.json', 'r') as f:
+with open('dataset-template.json', 'r') as f:
     data = json.load(f)
 
 print(f"Uploading {len(data)} problems...")

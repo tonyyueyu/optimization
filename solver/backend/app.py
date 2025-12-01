@@ -7,9 +7,10 @@ import json
 from pinecone import Pinecone
 import google.generativeai as genai
 import requests
+
 # -- CONFIGURATION --
 
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+GOOGLE_API_KEY = "AIzaSyDkb9Fi5TtRPpcODlmyafaBK4tdQFT5gpo"
 PINECONE_API_KEY = (
     "pcsk_bpvp5_KwTepQWna8UPTFAzZCkCTSQqMnLUNwtwCh3nhm1Rx2ogExfb5BpHQLGCVKYf4Bz"
 )
@@ -17,7 +18,8 @@ EXECUTOR_URL = "http://localhost:8000/execute"
 
 
 genai.configure(api_key=GOOGLE_API_KEY)
-
+print("Available Gemini Models:")
+print(genai.list_models())
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 
@@ -26,14 +28,15 @@ index_name = "math-questions"
 index = pc.Index(index_name)
 
 # Model Settings
-# Use 'gemini-1.5-pro'
+# Use 'gemini-2.5-pro'
 # These models support Native JSON mode.
-CHAT_MODEL_NAME = 'gemini-1.5-pro-002' 
-EMBEDDING_MODEL_NAME = 'hf.co/CompendiumLabs/bge-base-en-v1.5-gguf'
+CHAT_MODEL_NAME = "gemini-2.5-pro"
+EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
 
 app = Flask(__name__)
 CORS(app)
+
 
 @app.route("/api/retrieve", methods=["POST"])
 def retrieve():
@@ -43,26 +46,25 @@ def retrieve():
         return jsonify({"error": "Query is required"}), 400
     try:
         print(f"Embedding query with: {EMBEDDING_MODEL_NAME}")
-        embed_resp = ollama.embed(
-            model=EMBEDDING_MODEL_NAME,
-            input=query
-        )
-        query_embed = embed_resp['embeddings'][0]
+        embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
+        query_embed = embed_resp["embeddings"][0]
 
-        results = index.query(vector=query_embed, top_k=2, include_metadata=True)
+        results = index.query(vector=query_embed, top_k=1, include_metadata=True)
 
         res = []
-        for match in results['matches']:
-            if 'metadata' in match and 'json' in match['metadata']:
+        for match in results["matches"]:
+            if "metadata" in match and "json" in match["metadata"]:
                 try:
-                    obj = json.loads(match['metadata']['json'])
-                    res.append({
-                        "score": match["score"],
-                        "id": obj.get("id"),
-                        "problem": obj.get("problem"),
-                        "solution": obj.get("solution"),
-                        "steps": obj.get("steps")
-                    })
+                    obj = json.loads(match["metadata"]["json"])
+                    res.append(
+                        {
+                            "score": match["score"],
+                            "id": obj.get("id"),
+                            "problem": obj.get("problem"),
+                            "solution": obj.get("solution"),
+                            "steps": obj.get("steps"),
+                        }
+                    )
                 except:
                     continue
         return jsonify(res)
@@ -81,7 +83,6 @@ def solve():
     if not user_query:
         return jsonify({"error": "User query is required"}), 400
 
-
     step_history = []
     finished = False
     code_output = "None (Start of problem)"
@@ -91,7 +92,7 @@ def solve():
     # Configure the Chat Model
     model = genai.GenerativeModel(
         model_name=CHAT_MODEL_NAME,
-        generation_config={"response_mime_type": "application/json"}
+        generation_config={"response_mime_type": "application/json"},
     )
 
     # Initialize Chat Session (keeps internal context easier)
@@ -101,7 +102,7 @@ def solve():
     while not finished and current_loop < max_steps:
         # Construct the prompt
         prompt = f"""
-        You are a Math Optimization Code Solver.
+        You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets.
         
         GOAL: Solve this problem: "{user_query}"
         
@@ -126,38 +127,43 @@ def solve():
             "is_final_step": boolean
         }}
         """
-        
+
         print(f"--- Gemini Generating Step {current_loop + 1} ---")
-        
-        #Call LLM to get next step
+
+        # Call LLM to get next step
         try:
             response = chat_session.send_message(prompt)
-            # Access text directly; JSON parsing is safer due to MIME type config
             step_data = json.loads(response.text)
         except Exception as e:
             print(f"Gemini Error: {e}")
-            return jsonify({"error": "Failed to generate step from AI"}), 500
+            return jsonify({"error": f"Failed to generate step from AI: {e}"}), 500
 
         # Execute code from step
         print(f"Sending code to Docker: {step_data.get('code')}")
         try:
             # Send code to the Docker container via HTTP
             docker_response = requests.post(
-                EXECUTOR_URL, 
+                EXECUTOR_URL,
                 json={"code": step_data.get("code", "")},
-                timeout=30 # Wait up to 30s for math to finish
+                timeout=30,  # Wait up to 30s for math to finish
             )
-            
+
             if docker_response.status_code == 200:
                 execution_result = docker_response.json()
             else:
-                execution_result = {"output": "", "error": f"Docker API Error: {docker_response.status_code}"}
-                
+                execution_result = {
+                    "output": "",
+                    "error": f"Docker API Error: {docker_response.status_code}",
+                }
+
         except requests.exceptions.ConnectionError:
-            execution_result = {"output": "", "error": "Could not connect to Docker container. Is it running?"}
-        
-        code_output = execution_result['output']
-        if execution_result['error']:
+            execution_result = {
+                "output": "",
+                "error": "Could not connect to Docker container. Is it running?",
+            }
+
+        code_output = execution_result["output"]
+        if execution_result["error"]:
             code_output += f"\nERROR: {execution_result['error']}"
 
         # Record Step
