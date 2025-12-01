@@ -1,0 +1,7 @@
+flask
+jupyter_client
+ipykernel
+numpy
+scipy
+pandas
+matplotlib

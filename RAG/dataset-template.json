@@ -1,0 +1,29 @@
+[
+  {
+    "id": "optim_001",
+    "problem": "Find the minimum of the function f(x) = (x-2)^2 + 5",
+    "solution": "The minimum is 5 at x=2",
+    "steps": [
+      {
+        "step_id": 1,
+        "description": "Define the function",
+        "code": "def f(x):\n    return (x-2)**2 + 5",
+        "is_final_step": false
+      },
+      {
+        "step_id": 2,
+        "description": "Use scipy to minimize",
+        "code": "from scipy.optimize import minimize_scalar\nres = minimize_scalar(f)\nprint(res.fun)",
+        "is_final_step": true
+      }
+    ]
+  },
+  {
+    "id": "optim_002",
+    "problem": "Maximize the area of a rectangle with perimeter 20",
+    "solution": "The max area is 25 (Square 5x5)",
+    "steps": [
+       { "step_id": 1, "description": "Define area function in terms of one side x...", "code": "...", "is_final_step": false }
+    ]
+  }
+]
