@@ -39,6 +39,19 @@ function App() {
       const second = retrievedProblems[1];
 
       //add logic for sending problem to gemini api and then validating each step;
+
+      const steps = await fetch('http://localhost:5000/api/solve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ problem: first, second_problem: second, user_query: userMessage.content })
+      });
+
+      if(!steps.ok) {
+        throw new Error('Failed to get solution steps. Please try again later.');
+      }
+      else {
+        //add logic for dispalying response step by step
+      }
     }
     catch (error) {
       console.error('Error:', error);
