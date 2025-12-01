@@ -1,27 +1,40 @@
 import ollama
 import numpy as np
-import pinecone
+from pinecone import Pinecone, ServerlessSpec
 import json
 
 PINECONE_API_KEY = "pcsk_bpvp5_KwTepQWna8UPTFAzZCkCTSQqMnLUNwtwCh3nhm1Rx2ogExfb5BpHQLGCVKYf4Bz"
 PINECONE_ENV = "us-west1-gcp"
-
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
-
 index_name = "math-questions"
-if index_name not in pinecone.list_indexes():
-    pinecone.create_index(index_name, dimension=1024)
-index = pinecone.Index(index_name)
-
-
+DIMENSIONS = 768
 EMBEDDING_MODEL = 'hf.co/CompendiumLabs/bge-base-en-v1.5-gguf'
 
-def store_problem(json_obj):
-    problem_id = str(json_obj['id'])
+pc = Pinecone(api_key=PINECONE_API_KEY)
 
-    embed = ollama.embed( model=EMBEDDING_MODEL, input=json_obj["problem"] )["embeddings"][0]
+if index_name not in [i.name for i in pc.list_indexes()]:
+    pc.create_index(
+        name=index_name,
+        dimension=DIMENSIONS,
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region="us-east-1") 
+    )
 
-    index.upsert([(problem_id, embed, {"json": json.dumps(json_obj)})])
+index = pc.Index(index_name)
 
-    print(f"Stored problem {problem_id}")
+with open('dataset.json', 'r') as f:
+    data = json.load(f)
 
+print(f"Uploading {len(data)} problems...")
+
+for item in data:
+    # Generate embedding
+    response = ollama.embed(model=EMBEDDING_MODEL, input=item["problem"])
+    embedding = response["embeddings"][0]
+
+    # Upsert to Pinecone
+    index.upsert(vectors=[{
+        "id": str(item["id"]), 
+        "values": embedding, 
+        "metadata": {"json": json.dumps(item)}
+    }])
+    print(f"Uploaded {item['id']}")
