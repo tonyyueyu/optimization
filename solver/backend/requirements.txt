@@ -3,5 +3,5 @@ flask-cors
 requests
 google-generativeai
 ollama              
-pinecone-client
+pinecone
 python-dotenv

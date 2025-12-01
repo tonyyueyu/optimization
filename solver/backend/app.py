@@ -7,16 +7,19 @@ import json
 from pinecone import Pinecone
 import google.generativeai as genai
 import requests
+from dotenv import load_dotenv
 
 # -- CONFIGURATION --
 
-GOOGLE_API_KEY = "AIzaSyDkb9Fi5TtRPpcODlmyafaBK4tdQFT5gpo"
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = (
     "pcsk_bpvp5_KwTepQWna8UPTFAzZCkCTSQqMnLUNwtwCh3nhm1Rx2ogExfb5BpHQLGCVKYf4Bz"
 )
 EXECUTOR_URL = "http://localhost:8000/execute"
 
-
+if not GOOGLE_API_KEY:
+    raise ValueError("No API key found. Check your .env file.")
 genai.configure(api_key=GOOGLE_API_KEY)
 print("Available Gemini Models:")
 print(genai.list_models())
@@ -30,7 +33,7 @@ index = pc.Index(index_name)
 # Model Settings
 # Use 'gemini-2.5-pro'
 # These models support Native JSON mode.
-CHAT_MODEL_NAME = "gemini-2.5-pro"
+CHAT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
 
@@ -49,7 +52,7 @@ def retrieve():
         embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
         query_embed = embed_resp["embeddings"][0]
 
-        results = index.query(vector=query_embed, top_k=1, include_metadata=True)
+        results = index.query(vector=query_embed, top_k=2, include_metadata=True)
 
         res = []
         for match in results["matches"]:
@@ -116,7 +119,7 @@ def solve():
 
         INSTRUCTION:
         1. Validate the last step based on the code output.
-        2. Generate the NEXT step.
+        2. Generate the NEXT step. Use the description section as your scratchpad. Write out your reasoning verbosely before writing your code.
         3. Output strict JSON.
 
         JSON SCHEMA:

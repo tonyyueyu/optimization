@@ -3,5 +3,6 @@ jupyter_client
 ipykernel
 numpy
 scipy
+sympy
 pandas
 matplotlib
