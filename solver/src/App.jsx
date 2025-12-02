@@ -49,7 +49,6 @@ function App() {
         })
       });
 
-      // Read response body ONCE
       const raw = await steps.text();
 
       if (!steps.ok) {
@@ -57,7 +56,6 @@ function App() {
         throw new Error('Failed to get solution steps. Please try again later.');
       }
 
-      // Parse JSON only after confirming success
       let data;
       try {
         data = JSON.parse(raw);
@@ -67,14 +65,55 @@ function App() {
       }
 
       console.log('Solution Steps:', data);
-      // Add logic for displaying response step by step
 
+      const stepsRaw = Array.isArray(data?.steps) ? data.steps : [];
+      const formattedSteps = stepsRaw.map((step, index) => ({
+        number: index + 1,
+        title: step.title || step.name || step.heading || `Step ${index + 1}`,
+        description: step.description || step.step || step.details || '',
+        code: step.code || step.snippet || '',
+        language: step.language || 'python',
+        output: step.output || step.result || '',
+        error: step.error || '',
+        notes: step.notes || step.comment || ''
+      }));
+
+      const fallbackResponse =
+        data.solution ||
+        data.response ||
+        data.message ||
+        data.summary ||
+        (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+
+      const assistantMessage = formattedSteps.length
+        ? {
+            role: 'assistant',
+            type: 'steps',
+            title: data.title || 'Solution Steps',
+            summary: data.summary || '',
+            steps: formattedSteps,
+            content: fallbackResponse,
+          }
+        : {
+            role: 'assistant',
+            type: 'text',
+            content: fallbackResponse || 'No solution steps returned.',
+          };
+
+      setMessages(prev => [...prev, assistantMessage]);
 
     }
     catch (error) {
       console.error('Error:', error);
-      setIsLoading(false);
+      const errorMessage = {
+        role: 'assistant',
+        type: 'text',
+        content: `Sorry, I ran into a problem: ${error.message}. Please try again.`
+      };
+      setMessages(prev => [...prev, errorMessage]);
       return;
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -84,6 +123,94 @@ function App() {
       handleSend()
     }
   }
+
+  const renderMessageContent = (message) => {
+    if (message.role === 'assistant' && message.type === 'steps' && message.steps?.length) {
+      return renderAssistantSteps(message);
+    }
+
+    if (message.role === 'assistant') {
+      return renderPlainText(message.content);
+    }
+
+    return renderUserMessage(message.content);
+  }
+
+  const renderAssistantSteps = (message) => (
+    <div className="assistant-message">
+      <div className="steps-header">
+        <div className="steps-title">
+          <span role="img" aria-label="solution">📝</span>
+          <span>{message.title || 'Solution Steps'}</span>
+        </div>
+        {message.summary && <p className="steps-summary">{message.summary}</p>}
+      </div>
+
+      <div className="steps-list">
+        {message.steps.map((step) => (
+          <div key={step.number} className="step-container">
+            <div className="step-header">
+              <span className="step-number">{step.number}</span>
+              <span className="step-title">{step.title}</span>
+            </div>
+            <div className="step-content">
+              {step.description && (
+                <p className="step-text">{step.description}</p>
+              )}
+
+              {step.notes && (
+                <div className="step-field">
+                  <div className="step-label">Notes</div>
+                  <p>{step.notes}</p>
+                </div>
+              )}
+
+              {step.code && (
+                <div className="step-field">
+                  <div className="step-label">Code</div>
+                  {renderCodeBlock(step.code, step.language)}
+                </div>
+              )}
+
+              {step.output && (
+                <div className="step-field">
+                  <div className="step-label">Output</div>
+                  {renderPlainBlock(step.output)}
+                </div>
+              )}
+
+              {step.error && (
+                <div className="step-field error">
+                  <div className="step-label">Error</div>
+                  {renderPlainBlock(step.error)}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  const renderPlainText = (text = '') => (
+    <div className="assistant-message">
+      <pre className="plain-response">{text}</pre>
+    </div>
+  )
+
+  const renderUserMessage = (text = '') => (
+    <pre className="user-message-text">{text}</pre>
+  )
+
+  const renderCodeBlock = (code, language = 'text') => (
+    <pre className="code-block">
+      <code className={language ? `language-${language}` : ''}>{code}</code>
+    </pre>
+  )
+
+  const renderPlainBlock = (value = '') => (
+    <pre className="plain-block">{value}</pre>
+  )
 
   return (
     <div className="app">
@@ -102,7 +229,7 @@ function App() {
             messages.map((message, index) => (
               <div key={index} className={`message ${message.role}`}>
                 <div className="message-content">
-                  {message.content}
+                  {renderMessageContent(message)}
                 </div>
               </div>
             ))
