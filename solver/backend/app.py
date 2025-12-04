@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import ollama
 from pinecone import Pinecone
 import google.generativeai as genai
+from history_manager import HistoryManager
 
 # -- CONFIGURATION --
 
@@ -29,6 +30,7 @@ index = pc.Index(index_name)
 
 CHAT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
+history_manager = HistoryManager()
 
 # --- FastAPI app ---
 app = FastAPI() 
@@ -47,6 +49,7 @@ class SolveRequest(BaseModel):  # Added to replace Flask request.json
     problem: str = ""
     second_problem: str = ""
     user_query: str
+    session_id: str = "default_session"
 
 # -------------------- API Endpoints --------------------
 @app.post("/api/retrieve")
@@ -85,6 +88,8 @@ async def retrieve(data: RetrieveRequest):
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
     user_query = data.user_query.strip()
+    session_id = data.session_id
+
     if not user_query:
         raise HTTPException(status_code=400, detail="User query is required")
 
@@ -101,7 +106,12 @@ async def solve(data: SolveRequest):
         model_name=CHAT_MODEL_NAME,
         generation_config={"response_mime_type": "application/json"},
     )
-    chat_session = model.start_chat(history=[])
+    
+    # Load past history from Redis
+    past_history = history_manager.get_history(session_id)
+    print(f"Loaded {len(past_history)} past messages for session: {session_id}")
+
+    chat_session = model.start_chat(history=past_history)
 
     while not finished and current_loop < max_steps:
         prompt = f"""
@@ -175,6 +185,10 @@ async def solve(data: SolveRequest):
             finished = True
 
         current_loop += 1
+    
+    # Save updated history to Redis
+    history_manager.save_history(session_id, chat_session)
+    print(f"Saved updated history for session: {session_id}")
 
     return {"steps": step_history} 
 
