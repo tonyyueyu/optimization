@@ -109,7 +109,7 @@ async def solve(data: SolveRequest):
 
     model = genai.GenerativeModel(
         model_name=CHAT_MODEL_NAME,
-        generation_config={"response_mime_type": "application/json", "stream": True},  # Changed: enable streaming
+        generation_config={"response_mime_type": "application/json", "stream": True},  # streaming enabled
     )
     
     past_history = history_manager.get_history(session_id)
@@ -117,8 +117,8 @@ async def solve(data: SolveRequest):
 
     chat_session = model.start_chat(history=past_history)
 
-    async def event_generator():  # Added: async generator for streaming
-        nonlocal finished, current_loop, code_output  # Added: allow modifying outer vars
+    async def event_generator():
+        nonlocal finished, current_loop, code_output
 
         while not finished and current_loop < max_steps:
             prompt = f"""
@@ -148,17 +148,18 @@ async def solve(data: SolveRequest):
             }}
             """
             print(f"--- Gemini Generating Step {current_loop + 1} ---")
+            
             try:
-                async for chunk in chat_session.stream_message(prompt):  # Changed: stream token chunks
-                    yield f"data: {chunk}\n\n"  # Changed: stream chunk to client immediately
+                async for token in chat_session.stream_message(prompt):
+                    yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
             except Exception as e:
-                yield f"data: ERROR: {str(e)}\n\n"  # Changed: send errors as stream
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
                 break
 
             try:
                 step_data = json.loads(chat_session.last_response_text)
             except Exception as e:
-                yield f"data: ERROR parsing final JSON: {str(e)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': f'Error parsing JSON: {str(e)}'})}\n\n"
                 break
 
             print(f"Sending code to Docker: {step_data.get('code')}")
@@ -194,7 +195,7 @@ async def solve(data: SolveRequest):
             }
             step_history.append(full_step_record)
 
-            yield f"data: {json.dumps(full_step_record)}\n\n"
+            yield f"data: {json.dumps({'type': 'step', 'content': full_step_record})}\n\n"
 
             if step_data.get("is_final_step", False):
                 finished = True
@@ -204,6 +205,6 @@ async def solve(data: SolveRequest):
         history_manager.save_history(session_id, chat_session)
         print(f"Saved updated history for session: {session_id}")
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream") 
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 # -------------------- Run --------------------
 # Run with: uvicorn main:app --reload --port 5000
