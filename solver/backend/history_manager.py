@@ -26,6 +26,9 @@ class HistoryManager:
         if raw_data:
             return json.loads(raw_data)
         return []
+    
+    def get_map(self):
+        return self.redis.get()
 
     def save_history(self, session_id: str, chat_session):
         """
@@ -45,6 +48,7 @@ class HistoryManager:
                 "role": message.role,
                 "parts": [part_text]
             })
+
 
         # Save to Redis (Expire in 24 hours to keep memory clean)
         self.redis.setex(

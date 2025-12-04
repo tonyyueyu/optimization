@@ -9,6 +9,7 @@ import ollama
 from pinecone import Pinecone
 import google.generativeai as genai
 from history_manager import HistoryManager
+from typing import Union, Dict, Any
 
 # -- CONFIGURATION --
 
@@ -34,9 +35,16 @@ history_manager = HistoryManager()
 
 # --- FastAPI app ---
 app = FastAPI() 
+origins = [
+    "http://localhost:5173",  # Vite default
+    "http://127.0.0.1:5173",  # IP default
+    "http://localhost:3000",  # React Create App default
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins, 
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -191,6 +199,92 @@ async def solve(data: SolveRequest):
     print(f"Saved updated history for session: {session_id}")
 
     return {"steps": step_history} 
+
+@app.get("/api/history/{session_id}")
+async def get_chat_history(session_id: str):
+    try:
+        history = history_manager.get_history(session_id)
+        
+        formatted_history = []
+        for msg in history:
+            content_text = msg.get("parts", [""])[0]
+            role = "assistant" if msg["role"] == "model" else "user"
+            
+           
+            if role == "assistant":
+                try:
+                    # Clean up markdown code fences if Gemini added them (e.g. ```json ... ```)
+                    clean_text = content_text.replace("```json", "").replace("```", "").strip()
+                    json_data = json.loads(clean_text)
+                    
+                    
+                    if "step_id" in json_data or "steps" in json_data:
+                         
+                         steps_list = json_data.get("steps", [json_data]) 
+                         
+                         formatted_history.append({
+                            "role": role,
+                            "type": "steps", # Tell frontend to use the Step Renderer
+                            "steps": steps_list,
+                            "content": "Restored solution steps" 
+                         })
+                         continue # Skip the default append
+                except json.JSONDecodeError:
+                    pass
+
+            formatted_history.append({
+                "role": role,
+                "type": "text",
+                "content": content_text,
+            })
+            
+        return formatted_history
+    except Exception as e:
+        print(f"History Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/chat_map/")
+async def get_chat_history(session_id: str):
+    try:
+        history = history_manager.get_history(session_id)
+        
+        formatted_history = []
+        for msg in history:
+            content_text = msg.get("parts", [""])[0]
+            role = "assistant" if msg["role"] == "model" else "user"
+            
+           
+            if role == "assistant":
+                try:
+                    # Clean up markdown code fences if Gemini added them (e.g. ```json ... ```)
+                    clean_text = content_text.replace("```json", "").replace("```", "").strip()
+                    json_data = json.loads(clean_text)
+                    
+                    
+                    if "step_id" in json_data or "steps" in json_data:
+                         
+                         steps_list = json_data.get("steps", [json_data]) 
+                         
+                         formatted_history.append({
+                            "role": role,
+                            "type": "steps", # Tell frontend to use the Step Renderer
+                            "steps": steps_list,
+                            "content": "Restored solution steps" 
+                         })
+                         continue # Skip the default append
+                except json.JSONDecodeError:
+                    pass
+
+            formatted_history.append({
+                "role": role,
+                "type": "text",
+                "content": content_text,
+            })
+            
+        return formatted_history
+    except Exception as e:
+        print(f"History Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # -------------------- Run --------------------
 # Run with: uvicorn main:app --reload --port 5000
