@@ -1,52 +1,60 @@
 import os
 import json
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import ollama
-import json
-from pinecone import Pinecone
-import google.generativeai as genai
 import requests
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException 
+from fastapi.middleware.cors import CORSMiddleware 
+from pydantic import BaseModel
+import ollama
+from pinecone import Pinecone
+import google.generativeai as genai
 
 # -- CONFIGURATION --
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-PINECONE_API_KEY = (
-    "pcsk_bpvp5_KwTepQWna8UPTFAzZCkCTSQqMnLUNwtwCh3nhm1Rx2ogExfb5BpHQLGCVKYf4Bz"
-)
+PINECONE_API_KEY = "..."  # same
 EXECUTOR_URL = "http://localhost:8000/execute"
 
 if not GOOGLE_API_KEY:
     raise ValueError("No API key found. Check your .env file.")
+
 genai.configure(api_key=GOOGLE_API_KEY)
 print("Available Gemini Models:")
 print(genai.list_models())
+
 pc = Pinecone(api_key=PINECONE_API_KEY)
-
-
 index_name = "math-questions"
-
 index = pc.Index(index_name)
 
-# Model Settings
-# Use 'gemini-2.5-pro'
-# These models support Native JSON mode.
 CHAT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
+# --- FastAPI app ---
+app = FastAPI() 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app = Flask(__name__)
-CORS(app)
+# -------------------- Pydantic Models --------------------
+class RetrieveRequest(BaseModel):  # Added to replace Flask request.json
+    query: str
 
+class SolveRequest(BaseModel):  # Added to replace Flask request.json
+    problem: str = ""
+    second_problem: str = ""
+    user_query: str
 
-@app.route("/api/retrieve", methods=["POST"])
-def retrieve():
-    data = request.json
-    query = data.get("query", "")
+# -------------------- API Endpoints --------------------
+@app.post("/api/retrieve")
+async def retrieve(data: RetrieveRequest):
+    query = data.query.strip()
     if not query:
-        return jsonify({"error": "Query is required"}), 400
+        raise HTTPException(status_code=400, detail="Query is required")
+    
     try:
         print(f"Embedding query with: {EMBEDDING_MODEL_NAME}")
         embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
@@ -55,36 +63,33 @@ def retrieve():
         results = index.query(vector=query_embed, top_k=2, include_metadata=True)
 
         res = []
-        for match in results["matches"]:
-            if "metadata" in match and "json" in match["metadata"]:
+        for match in results.get("matches", []):
+            metadata_json = match.get("metadata", {}).get("json")
+            if metadata_json:
                 try:
-                    obj = json.loads(match["metadata"]["json"])
-                    res.append(
-                        {
-                            "score": match["score"],
-                            "id": obj.get("id"),
-                            "problem": obj.get("problem"),
-                            "solution": obj.get("solution"),
-                            "steps": obj.get("steps"),
-                        }
-                    )
-                except:
+                    obj = json.loads(metadata_json)
+                    res.append({
+                        "score": match["score"],
+                        "id": obj.get("id"),
+                        "problem": obj.get("problem"),
+                        "solution": obj.get("solution"),
+                        "steps": obj.get("steps"),
+                    })
+                except json.JSONDecodeError:
                     continue
-        return jsonify(res)
+        return res 
     except Exception as e:
         print(f"Retrieval Error: {e}")
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.route("/api/solve", methods=["POST"])
-def solve():
-    data = request.json
-    problem1 = data.get("problem", "")
-    problem2 = data.get("second_problem", "")
-    user_query = data.get("user_query", "")
-
+@app.post("/api/solve")
+async def solve(data: SolveRequest):
+    user_query = data.user_query.strip()
     if not user_query:
-        return jsonify({"error": "User query is required"}), 400
+        raise HTTPException(status_code=400, detail="User query is required")
+
+    problem1 = data.problem
+    problem2 = data.second_problem
 
     step_history = []
     finished = False
@@ -92,18 +97,13 @@ def solve():
     max_steps = 10
     current_loop = 0
 
-    # Configure the Chat Model
     model = genai.GenerativeModel(
         model_name=CHAT_MODEL_NAME,
         generation_config={"response_mime_type": "application/json"},
     )
-
-    # Initialize Chat Session (keeps internal context easier)
     chat_session = model.start_chat(history=[])
 
-    # Prompting Loop
     while not finished and current_loop < max_steps:
-        # Construct the prompt
         prompt = f"""
         You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets.
         
@@ -130,27 +130,21 @@ def solve():
             "is_final_step": boolean
         }}
         """
-
         print(f"--- Gemini Generating Step {current_loop + 1} ---")
-
-        # Call LLM to get next step
         try:
             response = chat_session.send_message(prompt)
             step_data = json.loads(response.text)
         except Exception as e:
             print(f"Gemini Error: {e}")
-            return jsonify({"error": f"Failed to generate step from AI: {e}"}), 500
+            raise HTTPException(status_code=500, detail=f"Failed to generate step from AI: {e}") 
 
-        # Execute code from step
         print(f"Sending code to Docker: {step_data.get('code')}")
         try:
-            # Send code to the Docker container via HTTP
             docker_response = requests.post(
                 EXECUTOR_URL,
                 json={"code": step_data.get("code", "")},
-                timeout=30,  # Wait up to 30s for math to finish
+                timeout=30,
             )
-
             if docker_response.status_code == 200:
                 execution_result = docker_response.json()
             else:
@@ -158,7 +152,6 @@ def solve():
                     "output": "",
                     "error": f"Docker API Error: {docker_response.status_code}",
                 }
-
         except requests.exceptions.ConnectionError:
             execution_result = {
                 "output": "",
@@ -169,7 +162,6 @@ def solve():
         if execution_result["error"]:
             code_output += f"\nERROR: {execution_result['error']}"
 
-        # Record Step
         full_step_record = {
             "step_id": step_data.get("step_id"),
             "description": step_data.get("description"),
@@ -179,14 +171,12 @@ def solve():
         }
         step_history.append(full_step_record)
 
-        # Check for completion
         if step_data.get("is_final_step", False):
             finished = True
 
         current_loop += 1
 
-    return jsonify({"steps": step_history})
+    return {"steps": step_history} 
 
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+# -------------------- Run --------------------
+# Run with: uvicorn main:app --reload --port 5000

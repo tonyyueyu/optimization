@@ -64,33 +64,25 @@ function App() {
         throw new Error("Server returned invalid JSON.");
       }
 
-      console.log('Solution Steps:', data);
-
       const stepsRaw = Array.isArray(data?.steps) ? data.steps : [];
       const formattedSteps = stepsRaw.map((step, index) => ({
         number: index + 1,
-        title: step.title || step.name || step.heading || `Step ${index + 1}`,
-        description: step.description || step.step || step.details || '',
-        code: step.code || step.snippet || '',
-        language: step.language || 'python',
+        title: `Step ${index + 1}`,
+        description: step.description ||'',
+        code: step.code || '',
+        language: 'python',
         output: step.output || step.result || '',
         error: step.error || '',
-        notes: step.notes || step.comment || ''
       }));
 
-      const fallbackResponse =
-        data.solution ||
-        data.response ||
-        data.message ||
-        data.summary ||
-        (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+      const fallbackResponse = (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
 
       const assistantMessage = formattedSteps.length
         ? {
             role: 'assistant',
             type: 'steps',
-            title: data.title || 'Solution Steps',
-            summary: data.summary || '',
+            title: 'Solution Steps',
+            summary: '',
             steps: formattedSteps,
             content: fallbackResponse,
           }
@@ -157,14 +149,6 @@ function App() {
               {step.description && (
                 <p className="step-text">{step.description}</p>
               )}
-
-              {step.notes && (
-                <div className="step-field">
-                  <div className="step-label">Notes</div>
-                  <p>{step.notes}</p>
-                </div>
-              )}
-
               {step.code && (
                 <div className="step-field">
                   <div className="step-label">Code</div>
