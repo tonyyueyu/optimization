@@ -1,12 +1,18 @@
 import json
 import redis
 import os
+import uuid
+from datetime import datetime
+from typing import List, Dict, Optional, Any
 
 # Connect to Redis
-# If you are using Docker for Redis, host might be 'redis' instead of 'localhost'
-REDIS_HOST = os.getenv("localhost")
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+
 try:
-    r = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+    r.ping()
+    print("✓ Redis connected successfully")
 except Exception as e:
     print(f"Warning: Redis connection failed. History will not work. {e}")
     r = None
@@ -14,45 +20,99 @@ except Exception as e:
 class HistoryManager:
     def __init__(self):
         self.redis = r
-
-    def get_history(self, session_id: str):
-        """
-        Retrieves list of messages from Redis and converts them 
-        into the format Gemini expects (list of dicts).
-        """
-        if not self.redis: return []
-        
-        raw_data = self.redis.get(f"chat:{session_id}")
-        if raw_data:
-            return json.loads(raw_data)
-        return []
     
-    def get_map(self):
-        return self.redis.get()
+    def getUserHistoryKey(self, user_id: str) -> str:
+        return f"chat_history:{user_id}"
+    
+    def getChatKey(self, chat_id: str) -> str:
+        return f"chat:{chat_id}"
+    
+    def fetch_chat(self, chat_id: str) -> Optional[Dict[str, Any]]:
+        if not self.redis:
+            print("Redis not connected")
+            return None
 
-    def save_history(self, session_id: str, chat_session):
-        """
-        Extracts history from the Gemini ChatSession object 
-        and saves it to Redis.
-        """
-        if not self.redis: return
-
-        # Gemini history is a list of complex objects. We need to serialize them.
-        # Format: [{'role': 'user', 'parts': ['text...']}, {'role': 'model', ...}]
-        serializable_history = []
+        key = self._get_chat_key(chat_id)
+        value = self.redis.get(key)
         
-        for message in chat_session.history:
-            # message.parts is usually a list, we grab the text
-            part_text = message.parts[0].text if message.parts else ""
-            serializable_history.append({
-                "role": message.role,
-                "parts": [part_text]
-            })
+        if not value:
+            return None
 
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            print(f"Warning: Chat {chat_id} is not valid JSON")
+            return None
+    
+    def fetch_user_history(self, user_id: str) -> List[Dict[str, Any]]:
+        if not self.redis:
+            print("Redis not connected")
+            return []
 
-        # Save to Redis (Expire in 24 hours to keep memory clean)
-        self.redis.setex(
-            f"chat:{session_id}", 
-            86400, 
-            json.dumps(serializable_history)
-        )
+        key = self.getUserHistoryKey(user_id)
+
+        chat_ids = self.redis.lrange(key, 0, -1)
+
+        messages = []
+
+        for chat_id in chat_ids:
+            chat = self.fetch_chat(chat_id)
+            if chat:
+                messages.append(chat)
+        
+        return messages
+
+    def save_message(self, user_id: str, message: Dict[str, Any]) -> str:
+        if not self.redis:
+            print("Redis not connected")
+            return ""
+        
+        chat_id = f"{user_id}_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
+
+        message_with_meta = {
+            **message,
+            "chat_id": chat_id,
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id
+        }
+
+        chat_key = self.getChatKey(chat_id)
+        self.redis.set(chat_key, json.dumps(message_with_meta))
+
+        history_key = self.getUserHistoryKey(user_id)
+        self.redis.rpush(history_key, chat_id)
+
+        return chat_id
+    
+    def save_conversation(self, user_id: str, user_message: Dict, assistant_message: Dict) -> tuple:
+        if not self.redis:
+            print("Redis not connected")
+            return "", ""
+        
+        user_chat_id = self.save_message(user_id, {
+            "role": "user",
+            "content": user_message.get("content", ""),
+            "type": "text"
+        })
+        
+        assistant_chat_id = self.save_message(user_id, assistant_message)
+        
+        return user_chat_id, assistant_chat_id
+    
+    def clear_user_history(self, user_id: str) -> bool:
+        if not self.redis:
+            return False
+
+        history_key = self.getUserHistoryKey(user_id)   
+        
+        chat_ids = self.redis.lrange(history_key, 0, -1)
+
+        for chat_id in chat_ids:
+            chat_key = self._get_chat_key(chat_id)
+            self.redis.delete(chat_key)
+        
+        self.redis.delete(history_key)
+        
+        return True
+
+        

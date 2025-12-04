@@ -15,7 +15,7 @@ function App() {
 
   useEffect(() => {
     const userUID = localStorage.getItem('user_uid')
-    if(!userUID) {
+    if (!userUID) {
       const newUID = `user_${Math.random().toString(36).substr(2, 9)}`
       localStorage.setItem('user_uid', newUID)
     }
@@ -23,6 +23,30 @@ function App() {
       console.log('Existing user UID:', userUID)
     }
   }, [])
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const retrieveResponse = await fetch('http://localhost:5000/api/chathistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id : userUID}),
+        signal: abortControllerRef.current.signal
+      });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const result = await response.json();
+        setMessages(result);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []); 
 
   useEffect(() => {
     scrollToBottom()

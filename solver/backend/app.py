@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import ollama
 from pinecone import Pinecone
 import google.generativeai as genai
+from history_manager import HistoryManager
 
 # -- CONFIGURATION --
 
@@ -29,6 +30,8 @@ index = pc.Index(index_name)
 CHAT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
+history_manager = HistoryManager()
+
 # --- FastAPI app ---
 app = FastAPI() 
 app.add_middleware(
@@ -47,6 +50,8 @@ class SolveRequest(BaseModel):
     second_problem: str = ""
     user_query: str
 
+class chatHistoryRequest(BaseModel):
+    id : str
 # -------------------- Helper Functions --------------------
 def send_sse_event(event_type: str, data: dict) -> str:
     """Format data as Server-Sent Event"""
@@ -247,6 +252,18 @@ async def solve(data: SolveRequest):
             "X-Accel-Buffering": "no",  # Disable nginx buffering
         }
     )
+
+# -------------------- REDIS Fetching--------------------
+@app.post("/api/chathistory")
+async def chathistory(data: chatHistoryRequest):
+    arr = history_manager.fetch_array("chat_history")
+    
+    messages = []
+    for chat in arr:
+        messages.append(history_manager.fetch_char(chat))
+    
+    return {"history": messages}
+
 
 
 # -------------------- Run --------------------
