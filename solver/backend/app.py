@@ -9,6 +9,8 @@ import ollama
 from pinecone import Pinecone
 import google.generativeai as genai
 from history_manager import HistoryManager
+from fastapi.responses import StreamingResponse
+import asyncio
 
 # -- CONFIGURATION --
 
@@ -85,6 +87,9 @@ async def retrieve(data: RetrieveRequest):
         print(f"Retrieval Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from fastapi.responses import StreamingResponse  # Added for streaming
+import asyncio  # Added for async generator
+
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
     user_query = data.user_query.strip()
@@ -104,93 +109,101 @@ async def solve(data: SolveRequest):
 
     model = genai.GenerativeModel(
         model_name=CHAT_MODEL_NAME,
-        generation_config={"response_mime_type": "application/json"},
+        generation_config={"response_mime_type": "application/json", "stream": True},  # Changed: enable streaming
     )
     
-    # Load past history from Redis
     past_history = history_manager.get_history(session_id)
     print(f"Loaded {len(past_history)} past messages for session: {session_id}")
 
     chat_session = model.start_chat(history=past_history)
 
-    while not finished and current_loop < max_steps:
-        prompt = f"""
-        You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets.
-        
-        GOAL: Solve this problem: "{user_query}"
-        
-        REFERENCE EXAMPLES:
-        1. {problem1}
-        2. {problem2}
+    async def event_generator():  # Added: async generator for streaming
+        nonlocal finished, current_loop, code_output  # Added: allow modifying outer vars
 
-        CURRENT STATUS:
-        History of steps taken: {json.dumps(step_history)}
-        Output of the LAST executed code block: {code_output}
+        while not finished and current_loop < max_steps:
+            prompt = f"""
+            You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets.
+            
+            GOAL: Solve this problem: "{user_query}"
+            
+            REFERENCE EXAMPLES:
+            1. {problem1}
+            2. {problem2}
 
-        INSTRUCTION:
-        1. Validate the last step based on the code output.
-        2. Generate the NEXT step. Use the description section as your scratchpad. Write out your reasoning verbosely before writing your code.
-        3. Output strict JSON.
+            CURRENT STATUS:
+            History of steps taken: {json.dumps(step_history)}
+            Output of the LAST executed code block: {code_output}
 
-        JSON SCHEMA:
-        {{
-            "step_id": integer,
-            "description": "string",
-            "code": "python code string",
-            "is_final_step": boolean
-        }}
-        """
-        print(f"--- Gemini Generating Step {current_loop + 1} ---")
-        try:
-            response = chat_session.send_message(prompt)
-            step_data = json.loads(response.text)
-        except Exception as e:
-            print(f"Gemini Error: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to generate step from AI: {e}") 
+            INSTRUCTION:
+            1. Validate the last step based on the code output.
+            2. Generate the NEXT step. Use the description section as your scratchpad. Write out your reasoning verbosely before writing your code.
+            3. Output strict JSON.
 
-        print(f"Sending code to Docker: {step_data.get('code')}")
-        try:
-            docker_response = requests.post(
-                EXECUTOR_URL,
-                json={"code": step_data.get("code", "")},
-                timeout=30,
-            )
-            if docker_response.status_code == 200:
-                execution_result = docker_response.json()
-            else:
+            JSON SCHEMA:
+            {{
+                "step_id": integer,
+                "description": "string",
+                "code": "python code string",
+                "is_final_step": boolean
+            }}
+            """
+            print(f"--- Gemini Generating Step {current_loop + 1} ---")
+            try:
+                async for chunk in chat_session.stream_message(prompt):  # Changed: stream token chunks
+                    yield f"data: {chunk}\n\n"  # Changed: stream chunk to client immediately
+            except Exception as e:
+                yield f"data: ERROR: {str(e)}\n\n"  # Changed: send errors as stream
+                break
+
+            try:
+                step_data = json.loads(chat_session.last_response_text)
+            except Exception as e:
+                yield f"data: ERROR parsing final JSON: {str(e)}\n\n"
+                break
+
+            print(f"Sending code to Docker: {step_data.get('code')}")
+            try:
+                docker_response = requests.post(
+                    EXECUTOR_URL,
+                    json={"code": step_data.get("code", "")},
+                    timeout=30,
+                )
+                if docker_response.status_code == 200:
+                    execution_result = docker_response.json()
+                else:
+                    execution_result = {
+                        "output": "",
+                        "error": f"Docker API Error: {docker_response.status_code}",
+                    }
+            except requests.exceptions.ConnectionError:
                 execution_result = {
                     "output": "",
-                    "error": f"Docker API Error: {docker_response.status_code}",
+                    "error": "Could not connect to Docker container. Is it running?",
                 }
-        except requests.exceptions.ConnectionError:
-            execution_result = {
-                "output": "",
-                "error": "Could not connect to Docker container. Is it running?",
+
+            code_output = execution_result["output"]
+            if execution_result["error"]:
+                code_output += f"\nERROR: {execution_result['error']}"
+
+            full_step_record = {
+                "step_id": step_data.get("step_id"),
+                "description": step_data.get("description"),
+                "code": step_data.get("code"),
+                "output": execution_result["output"],
+                "error": execution_result["error"],
             }
+            step_history.append(full_step_record)
 
-        code_output = execution_result["output"]
-        if execution_result["error"]:
-            code_output += f"\nERROR: {execution_result['error']}"
+            yield f"data: {json.dumps(full_step_record)}\n\n"
 
-        full_step_record = {
-            "step_id": step_data.get("step_id"),
-            "description": step_data.get("description"),
-            "code": step_data.get("code"),
-            "output": execution_result["output"],
-            "error": execution_result["error"],
-        }
-        step_history.append(full_step_record)
+            if step_data.get("is_final_step", False):
+                finished = True
 
-        if step_data.get("is_final_step", False):
-            finished = True
+            current_loop += 1
 
-        current_loop += 1
-    
-    # Save updated history to Redis
-    history_manager.save_history(session_id, chat_session)
-    print(f"Saved updated history for session: {session_id}")
+        history_manager.save_history(session_id, chat_session)
+        print(f"Saved updated history for session: {session_id}")
 
-    return {"steps": step_history} 
-
+    return StreamingResponse(event_generator(), media_type="text/event-stream") 
 # -------------------- Run --------------------
 # Run with: uvicorn main:app --reload --port 5000
