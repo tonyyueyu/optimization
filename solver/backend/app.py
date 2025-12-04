@@ -4,14 +4,11 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException 
 from fastapi.middleware.cors import CORSMiddleware 
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import ollama
 from pinecone import Pinecone
 import google.generativeai as genai
-from history_manager import HistoryManager
-from typing import Union, Dict, Any
-from fastapi.responses import StreamingResponse
-import asyncio
 
 # -- CONFIGURATION --
 
@@ -24,8 +21,6 @@ if not GOOGLE_API_KEY:
     raise ValueError("No API key found. Check your .env file.")
 
 genai.configure(api_key=GOOGLE_API_KEY)
-print("Available Gemini Models:")
-print(genai.list_models())
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
@@ -33,33 +28,29 @@ index = pc.Index(index_name)
 
 CHAT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
-history_manager = HistoryManager()
 
 # --- FastAPI app ---
 app = FastAPI() 
-origins = [
-    "http://localhost:5173",  # Vite default
-    "http://127.0.0.1:5173",  # IP default
-    "http://localhost:3000",  # React Create App default
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, 
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------- Pydantic Models --------------------
-class RetrieveRequest(BaseModel):  # Added to replace Flask request.json
+class RetrieveRequest(BaseModel):
     query: str
 
-class SolveRequest(BaseModel):  # Added to replace Flask request.json
+class SolveRequest(BaseModel):
     problem: str = ""
     second_problem: str = ""
     user_query: str
-    session_id: str = "default_session"
+
+# -------------------- Helper Functions --------------------
+def send_sse_event(event_type: str, data: dict) -> str:
+    """Format data as Server-Sent Event"""
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 # -------------------- API Endpoints --------------------
 @app.post("/api/retrieve")
@@ -95,40 +86,38 @@ async def retrieve(data: RetrieveRequest):
         print(f"Retrieval Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-from fastapi.responses import StreamingResponse  # Added for streaming
-import asyncio  # Added for async generator
 
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
     user_query = data.user_query.strip()
-    session_id = data.session_id
-
     if not user_query:
         raise HTTPException(status_code=400, detail="User query is required")
 
     problem1 = data.problem
     problem2 = data.second_problem
 
-    step_history = []
-    finished = False
-    code_output = "None (Start of problem)"
-    max_steps = 10
-    current_loop = 0
+    async def stream_solution():
+        step_history = []
+        finished = False
+        code_output = "None (Start of problem)"
+        max_steps = 10
+        current_loop = 0
 
-    model = genai.GenerativeModel(
-        model_name=CHAT_MODEL_NAME,
-        generation_config={"response_mime_type": "application/json", "stream": True},  # streaming enabled
-    )
-    
-    past_history = history_manager.get_history(session_id)
-    print(f"Loaded {len(past_history)} past messages for session: {session_id}")
-
-    chat_session = model.start_chat(history=past_history)
-
-    async def event_generator():
-        nonlocal finished, current_loop, code_output
+        model = genai.GenerativeModel(
+            model_name=CHAT_MODEL_NAME,
+            generation_config={"response_mime_type": "application/json"},
+        )
+        chat_session = model.start_chat(history=[])
 
         while not finished and current_loop < max_steps:
+            step_number = current_loop + 1
+            
+            # Notify client that we're starting a new step
+            yield send_sse_event("step_start", {
+                "step_number": step_number,
+                "status": "generating"
+            })
+
             prompt = f"""
             You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets.
             
@@ -155,20 +144,49 @@ async def solve(data: SolveRequest):
                 "is_final_step": boolean
             }}
             """
-            print(f"--- Gemini Generating Step {current_loop + 1} ---")
+            
+            print(f"--- Gemini Generating Step {step_number} (Streaming) ---")
             
             try:
-                async for token in chat_session.stream_message(prompt):
-                    yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                # Use streaming for Gemini response
+                response = chat_session.send_message(prompt, stream=True)
+                accumulated_text = ""
+                
+                for chunk in response:
+                    if chunk.text:
+                        accumulated_text += chunk.text
+                        # Stream each token/chunk to client
+                        yield send_sse_event("token", {
+                            "step_number": step_number,
+                            "text": chunk.text,
+                            "accumulated": accumulated_text
+                        })
+                
+                # Parse the complete JSON response
+                step_data = json.loads(accumulated_text)
+                
+                yield send_sse_event("generation_complete", {
+                    "step_number": step_number,
+                    "step_data": step_data
+                })
+                
+            except json.JSONDecodeError as e:
+                yield send_sse_event("error", {
+                    "message": f"Failed to parse AI response as JSON: {str(e)}",
+                    "raw_response": accumulated_text
+                })
+                return
             except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-                break
+                yield send_sse_event("error", {
+                    "message": f"Failed to generate step from AI: {str(e)}"
+                })
+                return
 
-            try:
-                step_data = json.loads(chat_session.last_response_text)
-            except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'content': f'Error parsing JSON: {str(e)}'})}\n\n"
-                break
+            # Notify client that we're executing code
+            yield send_sse_event("executing", {
+                "step_number": step_number,
+                "code": step_data.get("code", "")
+            })
 
             print(f"Sending code to Docker: {step_data.get('code')}")
             try:
@@ -203,102 +221,33 @@ async def solve(data: SolveRequest):
             }
             step_history.append(full_step_record)
 
-            yield f"data: {json.dumps({'type': 'step', 'content': full_step_record})}\n\n"
+            # Send completed step to client
+            yield send_sse_event("step_complete", {
+                "step": full_step_record,
+                "step_number": step_number
+            })
 
             if step_data.get("is_final_step", False):
                 finished = True
 
             current_loop += 1
 
-        history_manager.save_history(session_id, chat_session)
-        print(f"Saved updated history for session: {session_id}")
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+        # Signal completion
+        yield send_sse_event("done", {
+            "total_steps": len(step_history),
+            "steps": step_history
+        })
 
-@app.get("/api/history/{session_id}")
-async def get_chat_history(session_id: str):
-    try:
-        history = history_manager.get_history(session_id)
-        
-        formatted_history = []
-        for msg in history:
-            content_text = msg.get("parts", [""])[0]
-            role = "assistant" if msg["role"] == "model" else "user"
-            
-           
-            if role == "assistant":
-                try:
-                    # Clean up markdown code fences if Gemini added them (e.g. ```json ... ```)
-                    clean_text = content_text.replace("```json", "").replace("```", "").strip()
-                    json_data = json.loads(clean_text)
-                    
-                    
-                    if "step_id" in json_data or "steps" in json_data:
-                         
-                         steps_list = json_data.get("steps", [json_data]) 
-                         
-                         formatted_history.append({
-                            "role": role,
-                            "type": "steps", # Tell frontend to use the Step Renderer
-                            "steps": steps_list,
-                            "content": "Restored solution steps" 
-                         })
-                         continue # Skip the default append
-                except json.JSONDecodeError:
-                    pass
+    return StreamingResponse(
+        stream_solution(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
-            formatted_history.append({
-                "role": role,
-                "type": "text",
-                "content": content_text,
-            })
-            
-        return formatted_history
-    except Exception as e:
-        print(f"History Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
-@app.get("/api/chat_map/")
-async def get_chat_history(session_id: str):
-    try:
-        history = history_manager.get_history(session_id)
-        
-        formatted_history = []
-        for msg in history:
-            content_text = msg.get("parts", [""])[0]
-            role = "assistant" if msg["role"] == "model" else "user"
-            
-           
-            if role == "assistant":
-                try:
-                    # Clean up markdown code fences if Gemini added them (e.g. ```json ... ```)
-                    clean_text = content_text.replace("```json", "").replace("```", "").strip()
-                    json_data = json.loads(clean_text)
-                    
-                    
-                    if "step_id" in json_data or "steps" in json_data:
-                         
-                         steps_list = json_data.get("steps", [json_data]) 
-                         
-                         formatted_history.append({
-                            "role": role,
-                            "type": "steps", # Tell frontend to use the Step Renderer
-                            "steps": steps_list,
-                            "content": "Restored solution steps" 
-                         })
-                         continue # Skip the default append
-                except json.JSONDecodeError:
-                    pass
-
-            formatted_history.append({
-                "role": role,
-                "type": "text",
-                "content": content_text,
-            })
-            
-        return formatted_history
-    except Exception as e:
-        print(f"History Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # -------------------- Run --------------------
 # Run with: uvicorn main:app --reload --port 5000

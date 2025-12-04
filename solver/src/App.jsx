@@ -1,45 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import './App.css'
 
-// Helper to generate a random Session ID
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
-
 function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-
-  const [sessionId, setSessionId] = useState(null)
-  const [chatHistory, setChatHistory] = useState([]) // List of past session IDs
-
+  const [streamingContent, setStreamingContent] = useState(null)
   const messagesEndRef = useRef(null)
-
-  // 1. Initialize Session on Load
-  useEffect(() => {
-    // Check if we have a saved history list in browser storage
-    const storedHistory = JSON.parse(localStorage.getItem('my_chat_history') || '[]');
-    setChatHistory(storedHistory);
-    console.log("Loaded chat history:", storedHistory);
-    // Check if there was a last active session
-    const lastSession = localStorage.getItem('last_active_session');
-    
-    if (lastSession) {
-      setSessionId(lastSession);
-      loadChat(lastSession);
-    } else {
-      startNewChat();
-    }
-  }, []);
-
-  // 2. Persist History when it changes
-  useEffect(() => {
-    localStorage.setItem('my_chat_history', JSON.stringify(chatHistory));
-  }, [chatHistory]);
+  const abortControllerRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -47,71 +15,52 @@ function App() {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+  }, [messages, streamingContent])
 
-  // Actions
-  const startNewChat = () => {
-    const newId = generateUUID();
-    setSessionId(newId);
-    setMessages([]); 
-    localStorage.setItem('last_active_session', newId);
+  const parseSSE = (text) => {
+    const events = []
+    const lines = text.split('\n')
+    let currentEvent = {}
     
-    // Initialize with a generic name. We will rename it when the user types.
-    const newChatEntry = { id: newId, title: 'New Chat' };
-    setChatHistory(prev => [newChatEntry, ...prev]);
-  };
-
-  const loadChat = async (id) => {
-    setSessionId(id);
-    localStorage.setItem('last_active_session', id);
-    setIsLoading(true); // Show loading state
-
-    try {
-      // Call the new backend endpoint
-      const response = await fetch(`http://localhost:5000/api/history/${id}`);
-      if (!response.ok) throw new Error("Failed to load history");
-      
-      const historyData = await response.json();
-      
-      // Update the message window
-      setMessages(historyData); 
-    } catch (err) {
-      console.error("Could not load chat history:", err);
-      // If fails, just show empty or an error message
-      setMessages([{role: 'assistant', content: 'Could not load past history.'}]);
-    } finally {
-      setIsLoading(false);
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        currentEvent.event = line.slice(7)
+      } else if (line.startsWith('data: ')) {
+        try {
+          currentEvent.data = JSON.parse(line.slice(6))
+          events.push({ ...currentEvent })
+          currentEvent = {}
+        } catch (e) {
+          console.error('Failed to parse SSE data:', e)
+        }
+      }
     }
+    return events
   }
-
-
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-
-    const currentInput = input.trim();
-    // If this is the very first message in the window, rename the chat
-    if (messages.length === 0) {
-      const newTitle = currentInput.length > 25 
-        ? currentInput.substring(0, 25) + '...' 
-        : currentInput;
-
-      setChatHistory(prev => prev.map(chat => 
-        chat.id === sessionId ? { ...chat, title: newTitle } : chat
-      ));
-    }
-
 
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+ 
+    setStreamingContent({
+      steps: [],
+      currentStep: null,
+      currentTokens: '',
+      status: 'retrieving'
+    });
+
+    abortControllerRef.current = new AbortController();
 
     try {
       const retrieveResponse = await fetch('http://localhost:5000/api/retrieve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMessage.content, top_n: 2 })
+        body: JSON.stringify({ query: userMessage.content, top_n: 2 }),
+        signal: abortControllerRef.current.signal
       });
 
       if (!retrieveResponse.ok) {
@@ -120,79 +69,165 @@ function App() {
 
       const retrievedProblems = await retrieveResponse.json();
       console.log('Retrieved Problems:', retrievedProblems);
-      const first = retrievedProblems[0] ? retrievedProblems[0].problem : "";
-      const second = retrievedProblems[1] ? retrievedProblems[1].problem : "";
+      const first = retrievedProblems[0]?.problem || "";
+      const second = retrievedProblems[1]?.problem || "";
 
-      const steps = await fetch('http://localhost:5000/api/solve', {
+      setStreamingContent(prev => ({ ...prev, status: 'solving' }));
+      
+      const response = await fetch('http://localhost:5000/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           problem: first,
           second_problem: second,
-          user_query: userMessage.content,
-          session_id: sessionId
-        })
+          user_query: userMessage.content
+        }),
+        signal: abortControllerRef.current.signal
       });
 
-      const raw = await steps.text();
-
-      if (!steps.ok) {
-        console.error("Server returned error:", raw);
-        throw new Error('Failed to get solution steps. Please try again later.');
+      if (!response.ok) {
+        throw new Error('Failed to get solution');
       }
 
-      let data;
-      try {
-        data = JSON.parse(raw);
-      } catch (err) {
-        console.error("Invalid JSON from server:", raw);
-        throw new Error("Server returned invalid JSON.");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = parseSSE(buffer);
+        
+        const lastEventEnd = buffer.lastIndexOf('\n\n');
+        if (lastEventEnd !== -1) {
+          buffer = buffer.slice(lastEventEnd + 2);
+        }
+
+        for (const event of events) {
+          handleSSEEvent(event);
+        }
       }
 
-      const stepsRaw = Array.isArray(data?.steps) ? data.steps : [];
-      const formattedSteps = stepsRaw.map((step, index) => ({
-        number: index + 1,
-        title: `Step ${index + 1}`,
-        description: step.description ||'',
-        code: step.code || '',
-        language: 'python',
-        output: step.output || step.result || '',
-        error: step.error || '',
-      }));
-
-      const fallbackResponse = (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
-
-      const assistantMessage = formattedSteps.length
-        ? {
-            role: 'assistant',
-            type: 'steps',
-            title: 'Solution Steps',
-            summary: '',
-            steps: formattedSteps,
-            content: fallbackResponse,
-          }
-        : {
-            role: 'assistant',
-            type: 'text',
-            content: fallbackResponse || 'No solution steps returned.',
-          };
-
-      setMessages(prev => [...prev, assistantMessage]);
-
-    }
-    catch (error) {
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Request was cancelled');
+        return;
+      }
+      
       console.error('Error:', error);
+      setStreamingContent(null);
       const errorMessage = {
         role: 'assistant',
         type: 'text',
         content: `Sorry, I ran into a problem: ${error.message}. Please try again.`
       };
       setMessages(prev => [...prev, errorMessage]);
-      return;
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
-  }
+  };
+
+  const handleSSEEvent = (event) => {
+    switch (event.event) {
+      case 'step_start':
+        setStreamingContent(prev => ({
+          ...prev,
+          currentStep: event.data.step_number,
+          currentTokens: '',
+          status: 'generating'
+        }));
+        break;
+
+      case 'token':
+        setStreamingContent(prev => ({
+          ...prev,
+          currentTokens: event.data.accumulated
+        }));
+        break;
+
+      case 'generation_complete':
+        setStreamingContent(prev => ({
+          ...prev,
+          status: 'executing',
+          currentTokens: JSON.stringify(event.data.step_data, null, 2)
+        }));
+        break;
+
+      case 'executing':
+        setStreamingContent(prev => ({
+          ...prev,
+          status: 'executing'
+        }));
+        break;
+
+      case 'step_complete':
+        const formattedStep = {
+          number: event.data.step.step_id || event.data.step_number,
+          title: `Step ${event.data.step.step_id || event.data.step_number}`,
+          description: event.data.step.description || '',
+          code: event.data.step.code || '',
+          language: 'python',
+          output: event.data.step.output || '',
+          error: event.data.step.error || '',
+        };
+        
+        setStreamingContent(prev => ({
+          ...prev,
+          steps: [...prev.steps, formattedStep],
+          currentStep: null,
+          currentTokens: '',
+          status: 'waiting'
+        }));
+        break;
+
+      case 'done':
+        setStreamingContent(prev => {
+          const finalSteps = prev.steps;
+          
+          const assistantMessage = finalSteps.length > 0
+            ? {
+                role: 'assistant',
+                type: 'steps',
+                title: 'Solution Steps',
+                summary: '',
+                steps: finalSteps,
+              }
+            : {
+                role: 'assistant',
+                type: 'text',
+                content: 'No solution steps were generated.',
+              };
+          
+          setMessages(msgs => [...msgs, assistantMessage]);
+          return null;
+        });
+        break;
+
+      case 'error':
+        setStreamingContent(null);
+        const errorMessage = {
+          role: 'assistant',
+          type: 'text',
+          content: `Error: ${event.data.message}`
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        break;
+
+      default:
+        console.log('Unknown event:', event);
+    }
+  };
+
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsLoading(false);
+      setStreamingContent(null);
+    }
+  };
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -200,6 +235,89 @@ function App() {
       handleSend()
     }
   }
+
+  const renderStreamingContent = () => {
+    if (!streamingContent) return null;
+
+    return (
+      <div className="message assistant">
+        <div className="message-content">
+          <div className="assistant-message streaming">
+            <div className="steps-header">
+              <div className="steps-title">
+                <span role="img" aria-label="solution">📝</span>
+                <span>Solution Steps</span>
+                <span className="streaming-indicator">
+                  <span className="pulse"></span>
+                  {streamingContent.status === 'retrieving' && ' Retrieving...'}
+                  {streamingContent.status === 'generating' && ` Generating Step ${streamingContent.currentStep}...`}
+                  {streamingContent.status === 'executing' && ` Executing Step ${streamingContent.currentStep}...`}
+                  {streamingContent.status === 'waiting' && ' Processing...'}
+                </span>
+              </div>
+            </div>
+
+            <div className="steps-list">
+              {/* Completed steps */}
+              {streamingContent.steps.map((step) => (
+                <div key={step.number} className="step-container">
+                  <div className="step-header">
+                    <span className="step-number">{step.number}</span>
+                    <span className="step-title">{step.title}</span>
+                    <span className="step-status complete">✓</span>
+                  </div>
+                  <div className="step-content">
+                    {step.description && (
+                      <p className="step-text">{step.description}</p>
+                    )}
+                    {step.code && (
+                      <div className="step-field">
+                        <div className="step-label">Code</div>
+                        {renderCodeBlock(step.code, step.language)}
+                      </div>
+                    )}
+                    {step.output && (
+                      <div className="step-field">
+                        <div className="step-label">Output</div>
+                        {renderPlainBlock(step.output)}
+                      </div>
+                    )}
+                    {step.error && (
+                      <div className="step-field error">
+                        <div className="step-label">Error</div>
+                        {renderPlainBlock(step.error)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Currently streaming step */}
+              {streamingContent.currentStep && (
+                <div className="step-container streaming-step">
+                  <div className="step-header">
+                    <span className="step-number">{streamingContent.currentStep}</span>
+                    <span className="step-title">Step {streamingContent.currentStep}</span>
+                    <span className="step-status generating">
+                      <span className="spinner"></span>
+                    </span>
+                  </div>
+                  <div className="step-content">
+                    {streamingContent.currentTokens && (
+                      <div className="streaming-tokens">
+                        <pre className="token-stream">{streamingContent.currentTokens}</pre>
+                        <span className="cursor">|</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderMessageContent = (message) => {
     if (message.role === 'assistant' && message.type === 'steps' && message.steps?.length) {
@@ -240,14 +358,12 @@ function App() {
                   {renderCodeBlock(step.code, step.language)}
                 </div>
               )}
-
               {step.output && (
                 <div className="step-field">
                   <div className="step-label">Output</div>
                   {renderPlainBlock(step.output)}
                 </div>
               )}
-
               {step.error && (
                 <div className="step-field error">
                   <div className="step-label">Error</div>
@@ -283,68 +399,36 @@ function App() {
 
   return (
     <div className="app">
-      
-      {/* --- SIDEBAR --- */}
-      <div className="sidebar">
-        <button onClick={startNewChat} className="new-chat-btn">
-          {/* Plus Icon */}
-          <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <span>New Chat</span>
-        </button>
-
-        <div className="history-list">
-          <div className="history-label">Previous 7 Days</div>
-          {chatHistory.map((chat) => (
-            <button
-              key={chat.id}
-              onClick={() => loadChat(chat.id)}
-              className={`history-item ${sessionId === chat.id ? 'active' : ''}`}
-            >
-              {/* Chat Bubble Icon */}
-              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg" style={{marginRight: '8px'}}>
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-              </svg>
-              {chat.title}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* --- MAIN CHAT AREA --- */}
       <div className="chat-container">
         <div className="chat-header">
           <h1>Chat Assistant</h1>
+          {isLoading && (
+            <button onClick={handleCancel} className="cancel-button">
+              Cancel
+            </button>
+          )}
         </div>
 
         <div className="messages-container">
-          {messages.length === 0 ? (
+          {messages.length === 0 && !streamingContent ? (
             <div className="empty-state">
-              <h2>How can I help you today?</h2>
+              <h2>Start a conversation</h2>
+              <p>Type a message below to begin</p>
             </div>
           ) : (
-            messages.map((message, index) => (
-              <div key={index} className={`message ${message.role}`}>
-                <div className="message-content">
-                  {renderMessageContent(message)}
+            <>
+              {messages.map((message, index) => (
+                <div key={index} className={`message ${message.role}`}>
+                  <div className="message-content">
+                    {renderMessageContent(message)}
+                  </div>
                 </div>
-              </div>
-            ))
-          )}
-          {isLoading && (
-            <div className="message assistant">
-              <div className="message-content">
-                <div className="typing-indicator">
-                  <span></span><span></span><span></span>
-                </div>
-              </div>
-            </div>
+              ))}
+              {renderStreamingContent()}
+            </>
           )}
           <div ref={messagesEndRef} />
-        </div>      const first = retrievedProblems[0] ? retrievedProblems[0].problem : "";
-
+        </div>
 
         <div className="input-container">
           <div className="input-wrapper">
@@ -352,7 +436,7 @@ function App() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Send a message..."
+              placeholder="Type your message here..."
               rows={1}
               disabled={isLoading}
               className="chat-input"
@@ -363,8 +447,8 @@ function App() {
               className="send-button"
             >
               <svg
-                width="16"
-                height="16"
+                width="20"
+                height="20"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
