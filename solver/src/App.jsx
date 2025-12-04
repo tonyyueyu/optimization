@@ -14,6 +14,17 @@ function App() {
   }
 
   useEffect(() => {
+    const userUID = localStorage.getItem('user_uid')
+    if(!userUID) {
+      const newUID = `user_${Math.random().toString(36).substr(2, 9)}`
+      localStorage.setItem('user_uid', newUID)
+    }
+    else {
+      console.log('Existing user UID:', userUID)
+    }
+  }, [])
+
+  useEffect(() => {
     scrollToBottom()
   }, [messages, streamingContent])
 
@@ -21,7 +32,7 @@ function App() {
     const events = []
     const lines = text.split('\n')
     let currentEvent = {}
-    
+
     for (const line of lines) {
       if (line.startsWith('event: ')) {
         currentEvent.event = line.slice(7)
@@ -45,7 +56,7 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
- 
+
     setStreamingContent({
       steps: [],
       currentStep: null,
@@ -73,7 +84,7 @@ function App() {
       const second = retrievedProblems[1]?.problem || "";
 
       setStreamingContent(prev => ({ ...prev, status: 'solving' }));
-      
+
       const response = await fetch('http://localhost:5000/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -99,7 +110,7 @@ function App() {
 
         buffer += decoder.decode(value, { stream: true });
         const events = parseSSE(buffer);
-        
+
         const lastEventEnd = buffer.lastIndexOf('\n\n');
         if (lastEventEnd !== -1) {
           buffer = buffer.slice(lastEventEnd + 2);
@@ -115,7 +126,7 @@ function App() {
         console.log('Request was cancelled');
         return;
       }
-      
+
       console.error('Error:', error);
       setStreamingContent(null);
       const errorMessage = {
@@ -173,7 +184,7 @@ function App() {
           output: event.data.step.output || '',
           error: event.data.step.error || '',
         };
-        
+
         setStreamingContent(prev => ({
           ...prev,
           steps: [...prev.steps, formattedStep],
@@ -186,21 +197,21 @@ function App() {
       case 'done':
         setStreamingContent(prev => {
           const finalSteps = prev.steps;
-          
+
           const assistantMessage = finalSteps.length > 0
             ? {
-                role: 'assistant',
-                type: 'steps',
-                title: 'Solution Steps',
-                summary: '',
-                steps: finalSteps,
-              }
+              role: 'assistant',
+              type: 'steps',
+              title: 'Solution Steps',
+              summary: '',
+              steps: finalSteps,
+            }
             : {
-                role: 'assistant',
-                type: 'text',
-                content: 'No solution steps were generated.',
-              };
-          
+              role: 'assistant',
+              type: 'text',
+              content: 'No solution steps were generated.',
+            };
+
           setMessages(msgs => [...msgs, assistantMessage]);
           return null;
         });
