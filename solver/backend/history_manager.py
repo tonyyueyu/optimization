@@ -4,7 +4,7 @@ import os
 
 # Connect to Redis
 # If you are using Docker for Redis, host might be 'redis' instead of 'localhost'
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_HOST = os.getenv("localhost")
 try:
     r = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
 except Exception as e:
