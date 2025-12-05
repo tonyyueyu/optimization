@@ -84,21 +84,6 @@ class HistoryManager:
 
         return chat_id
     
-    def save_conversation(self, user_id: str, user_message: Dict, assistant_message: Dict) -> tuple:
-        if not self.redis:
-            print("Redis not connected")
-            return "", ""
-        
-        user_chat_id = self.save_message(user_id, {
-            "role": "user",
-            "content": user_message.get("content", ""),
-            "type": "text"
-        })
-        
-        assistant_chat_id = self.save_message(user_id, assistant_message)
-        
-        return user_chat_id, assistant_chat_id
-    
     def clear_user_history(self, user_id: str) -> bool:
         if not self.redis:
             return False

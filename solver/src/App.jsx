@@ -178,8 +178,9 @@ function App() {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-
+        console.log(value);
         buffer += decoder.decode(value, { stream: true });
+        console.log(buffer);
         const events = parseSSE(buffer);
 
         const lastEventEnd = buffer.lastIndexOf('\n\n');
