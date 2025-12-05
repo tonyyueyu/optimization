@@ -6,13 +6,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware 
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 import ollama
 from pinecone import Pinecone
 import google.generativeai as genai
 from history_manager import HistoryManager
 
 # -- CONFIGURATION --
-
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -49,13 +49,25 @@ class SolveRequest(BaseModel):
     problem: str = ""
     second_problem: str = ""
     user_query: str
+    user_id: Optional[str] = None  # Add user_id for saving history
 
-class chatHistoryRequest(BaseModel):
-    id : str
+class ChatHistoryRequest(BaseModel):
+    id: str
+    limit: Optional[int] = 50  # Optional limit parameter
+
+class ClearHistoryRequest(BaseModel):
+    id: str
+
+class SaveMessageRequest(BaseModel):
+    user_id: str
+    message: Dict[str, Any]
+
+
 # -------------------- Helper Functions --------------------
 def send_sse_event(event_type: str, data: dict) -> str:
     """Format data as Server-Sent Event"""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
 
 # -------------------- API Endpoints --------------------
 @app.post("/api/retrieve")
@@ -100,6 +112,7 @@ async def solve(data: SolveRequest):
 
     problem1 = data.problem
     problem2 = data.second_problem
+    user_id = data.user_id
 
     async def stream_solution():
         step_history = []
@@ -114,10 +127,17 @@ async def solve(data: SolveRequest):
         )
         chat_session = model.start_chat(history=[])
 
+        # Save user message to history
+        if user_id:
+            history_manager.save_message(user_id, {
+                "role": "user",
+                "content": user_query,
+                "type": "text"
+            })
+
         while not finished and current_loop < max_steps:
             step_number = current_loop + 1
             
-            # Notify client that we're starting a new step
             yield send_sse_event("step_start", {
                 "step_number": step_number,
                 "status": "generating"
@@ -153,21 +173,18 @@ async def solve(data: SolveRequest):
             print(f"--- Gemini Generating Step {step_number} (Streaming) ---")
             
             try:
-                # Use streaming for Gemini response
                 response = chat_session.send_message(prompt, stream=True)
                 accumulated_text = ""
                 
                 for chunk in response:
                     if chunk.text:
                         accumulated_text += chunk.text
-                        # Stream each token/chunk to client
                         yield send_sse_event("token", {
                             "step_number": step_number,
                             "text": chunk.text,
                             "accumulated": accumulated_text
                         })
                 
-                # Parse the complete JSON response
                 step_data = json.loads(accumulated_text)
                 
                 yield send_sse_event("generation_complete", {
@@ -187,7 +204,6 @@ async def solve(data: SolveRequest):
                 })
                 return
 
-            # Notify client that we're executing code
             yield send_sse_event("executing", {
                 "step_number": step_number,
                 "code": step_data.get("code", "")
@@ -226,7 +242,6 @@ async def solve(data: SolveRequest):
             }
             step_history.append(full_step_record)
 
-            # Send completed step to client
             yield send_sse_event("step_complete", {
                 "step": full_step_record,
                 "step_number": step_number
@@ -237,7 +252,17 @@ async def solve(data: SolveRequest):
 
             current_loop += 1
 
-        # Signal completion
+        # Save assistant response to history
+        if user_id and step_history:
+            assistant_message = {
+                "role": "assistant",
+                "type": "steps",
+                "title": "Solution Steps",
+                "summary": "",
+                "steps": step_history
+            }
+            history_manager.save_message(user_id, assistant_message)
+
         yield send_sse_event("done", {
             "total_steps": len(step_history),
             "steps": step_history
@@ -249,21 +274,57 @@ async def solve(data: SolveRequest):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         }
     )
 
-# -------------------- REDIS Fetching--------------------
-@app.post("/api/chathistory")
-async def chathistory(data: chatHistoryRequest):
-    arr = history_manager.fetch_array("chat_history")
-    
-    messages = []
-    for chat in arr:
-        messages.append(history_manager.fetch_char(chat))
-    
-    return {"history": messages}
 
+# -------------------- REDIS Chat History Endpoints --------------------
+@app.post("/api/chathistory")
+async def get_chat_history(data: ChatHistoryRequest):
+    """Fetch chat history for a user."""
+    user_id = data.id.strip()
+    
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID is required")
+    
+    try:
+        messages = history_manager.fetch_user_history(user_id)
+        
+        return {"history": messages, "count": len(messages)}
+    
+    except Exception as e:
+        print(f"Error fetching chat history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chathistory/clear")
+async def clear_chat_history(data: ClearHistoryRequest):
+    """Clear all chat history for a user."""
+    user_id = data.id.strip()
+    
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID is required")
+    
+    try:
+        success = history_manager.clear_user_history(user_id)
+        return {"success": success, "message": "History cleared" if success else "Failed to clear"}
+    
+    except Exception as e:
+        print(f"Error clearing chat history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chathistory/save")
+async def save_chat_message(data: SaveMessageRequest):
+    """Manually save a message to history."""
+    try:
+        chat_id = history_manager.save_message(data.user_id, data.message)
+        return {"success": True, "chat_id": chat_id}
+    
+    except Exception as e:
+        print(f"Error saving message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -------------------- Run --------------------

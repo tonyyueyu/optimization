@@ -5,3 +5,4 @@ google-generativeai
 ollama              
 pinecone
 python-dotenv
+redis

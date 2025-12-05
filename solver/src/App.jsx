@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
 
 function App() {
@@ -6,47 +6,92 @@ function App() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState(null)
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
+  const userUIDRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   useEffect(() => {
-    const userUID = localStorage.getItem('user_uid')
+    let userUID = localStorage.getItem('user_uid')
     if (!userUID) {
-      const newUID = `user_${Math.random().toString(36).substr(2, 9)}`
-      localStorage.setItem('user_uid', newUID)
-    }
-    else {
+      userUID = `user_${Math.random().toString(36).substr(2, 9)}`
+      localStorage.setItem('user_uid', userUID)
+      console.log('Created new user UID:', userUID)
+    } else {
       console.log('Existing user UID:', userUID)
     }
+    userUIDRef.current = userUID
   }, [])
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const retrieveResponse = await fetch('http://localhost:5000/api/chathistory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id : userUID}),
-        signal: abortControllerRef.current.signal
-      });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const result = await response.json();
-        setMessages(result);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
+  const fetchChatHistory = useCallback(async () => {
+    const userUID = localStorage.getItem('user_uid')
+
+    if (!userUID) {
+      setHistoryLoading(false);
+      return;
     }
 
-    fetchData();
-  }, []); 
+    setHistoryLoading(true);
+    setHistoryError(null);
+
+    try {
+      const response = await fetch('http://localhost:5000/api/chathistory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userUID }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json();
+
+      const formattedMessages = result.history.map(msg => {
+        if (msg.role === 'assistant' && msg.type === 'steps') {
+          return {
+            role: 'assistant',
+            type: 'steps',
+            title: msg.title || 'Solution Steps',
+            summary: msg.summary || '',
+            steps: (msg.steps || []).map((step, idx) => ({
+              number: step.step_id || idx + 1,
+              title: `Step ${step.step_id || idx + 1}`,
+              description: step.description || '',
+              code: step.code || '',
+              language: 'python',
+              output: step.output || '',
+              error: step.error || ''
+            }))
+          }
+        }
+
+        return {
+          role: msg.role,
+          type: msg.type || 'text',
+          content: msg.content || ''
+        }
+      })
+
+      setMessages(formattedMessages)
+      console.log('Loaded chat history:', formattedMessages.length, 'messages')
+    } catch (err) {
+      console.error('Failed to fetch chat history:', err)
+      setHistoryError(err.message)
+    } finally {
+      setHistoryLoading(false)
+    }
+
+
+  }, []);
+  useEffect(() => {
+    fetchChatHistory()
+  }, [fetchChatHistory])
 
   useEffect(() => {
     scrollToBottom()
@@ -76,6 +121,7 @@ function App() {
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
+    const userUID = localStorage.getItem('user_uid')
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -115,7 +161,8 @@ function App() {
         body: JSON.stringify({
           problem: first,
           second_problem: second,
-          user_query: userMessage.content
+          user_query: userMessage.content,
+          user_id: userUID
         }),
         signal: abortControllerRef.current.signal
       });
@@ -263,6 +310,26 @@ function App() {
       setStreamingContent(null);
     }
   };
+
+  const handleClearHistory = async () => {
+    const userUID = localStorage.getItem('user_uid')
+    if (!userUID) return
+
+    try {
+      const response = await fetch('http://localhost:5000/api/chathistory/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userUID }),
+      })
+
+      if (response.ok) {
+        setMessages([])
+        console.log('Chat history cleared')
+      }
+    } catch (err) {
+      console.error('Failed to clear history:', err)
+    }
+  }
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -442,6 +509,11 @@ function App() {
               Cancel
             </button>
           )}
+          {messages.length > 0 && !isLoading && (
+              <button onClick={handleClearHistory} className="cancel-button">
+                Clear History
+              </button>
+            )}
         </div>
 
         <div className="messages-container">

@@ -32,7 +32,7 @@ class HistoryManager:
             print("Redis not connected")
             return None
 
-        key = self._get_chat_key(chat_id)
+        key = self.getChatKey(chat_id)
         value = self.redis.get(key)
         
         if not value:
@@ -108,7 +108,7 @@ class HistoryManager:
         chat_ids = self.redis.lrange(history_key, 0, -1)
 
         for chat_id in chat_ids:
-            chat_key = self._get_chat_key(chat_id)
+            chat_key = self.getChatKey(chat_id)
             self.redis.delete(chat_key)
         
         self.redis.delete(history_key)
