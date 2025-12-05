@@ -24,8 +24,8 @@ if ($redisContainer -eq "my-redis") {
 }
 
 # --- Step 3: Start FastAPI backend ---
-Write-Host "Starting FastAPI backend on port 5000..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd $backendPath; python -m uvicorn app:app --reload --port 5000"
+Write-Host "Starting FastAPI backend on port 5001..."
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd $backendPath; python -m uvicorn app:app --reload --port 5001"
 
 # --- Step 4: Start frontend ---
 Write-Host "Starting frontend dev server..."

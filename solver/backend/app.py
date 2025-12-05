@@ -148,12 +148,14 @@ async def solve(data: SolveRequest):
         max_steps = 10
         current_loop = 0
 
+        to_do = []
+        
         model = genai.GenerativeModel(
             model_name=CHAT_MODEL_NAME,
             generation_config={"response_mime_type": "application/json"},
         )
         chat_session = model.start_chat(history=[])
-
+    
         # Save user message to history
         if user_id:
             history_manager.save_message(user_id, {
@@ -181,18 +183,22 @@ async def solve(data: SolveRequest):
 
             CURRENT STATUS:
             History of steps taken: {json.dumps(step_history)}
+            Original to-do list (use this as reference; LLM may update this in its "to_do" output): {json.dumps(to_do)}
             Output of the LAST executed code block: {code_output}
 
             INSTRUCTION:
-            1. Validate the last step based on the code output.
-            2. Generate the NEXT step. Use the description section as your scratchpad. Write out your reasoning verbosely before writing your code.
-            3. Output strict JSON.
+            1. At the very first step, plan the full problem as a complete to-do list and include it in the "to_do" field.
+            2. For subsequent steps, validate the last executed step based on the code output.
+            3. Update the to-do list as needed, reflecting completed tasks or new tasks.
+            4. Generate the NEXT step. Use the description section as a scratchpad and write your reasoning verbosely before writing code.
+            5. Output strict JSON following the schema.
 
             JSON SCHEMA:
             {{
                 "step_id": integer,
                 "description": "string",
                 "code": "python code string",
+                "to_do": ["string", "string", ...],
                 "is_final_step": boolean
             }}
             """
@@ -268,6 +274,9 @@ async def solve(data: SolveRequest):
                 "error": execution_result["error"],
             }
             step_history.append(full_step_record)
+
+            to_do = step_data.get("to_do", to_do) 
+            print(to_do)
 
             yield send_sse_event("step_complete", {
                 "step": full_step_record,
