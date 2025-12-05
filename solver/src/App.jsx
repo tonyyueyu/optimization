@@ -250,8 +250,8 @@ function App() {
 
       case 'step_complete':
         const formattedStep = {
-          number: event.data.step.step_id || event.data.step_number,
-          title: `Step ${event.data.step.step_id || event.data.step_number}`,
+          number: event.data.step.step_id,
+          title: `Step ${event.data.step.step_id}`,
           description: event.data.step.description || '',
           code: event.data.step.code || '',
           language: 'python',
