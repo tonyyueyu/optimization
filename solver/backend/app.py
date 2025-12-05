@@ -34,11 +34,15 @@ history_manager = HistoryManager()
 
 # --- FastAPI app ---
 app = FastAPI() 
+
+# CORS Configuration - explicitly allow localhost origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=["*",],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # -------------------- Pydantic Models --------------------
@@ -78,10 +82,27 @@ async def retrieve(data: RetrieveRequest):
     
     try:
         print(f"Embedding query with: {EMBEDDING_MODEL_NAME}")
-        embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
-        query_embed = embed_resp["embeddings"][0]
-
-        results = index.query(vector=query_embed, top_k=2, include_metadata=True)
+        
+        # Check if Ollama is accessible
+        try:
+            embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
+            query_embed = embed_resp["embeddings"][0]
+        except Exception as ollama_error:
+            error_msg = f"Ollama embedding failed: {str(ollama_error)}"
+            print(f"Warning: {error_msg}")
+            print("Ollama is not running. Returning empty results - app will continue without retrieved examples.")
+            print("To enable retrieval: Start Ollama with 'ollama serve' or install from https://ollama.com/download")
+            # Return empty array so app can continue without reference examples
+            # The solve endpoint can work, just without retrieved problem examples
+            return []
+        
+        # Check if Pinecone index is accessible
+        try:
+            results = index.query(vector=query_embed, top_k=2, include_metadata=True)
+        except Exception as pinecone_error:
+            error_msg = f"Pinecone query failed: {str(pinecone_error)}. Check your PINECONE_API_KEY and index name."
+            print(f"Retrieval Error: {error_msg}")
+            raise HTTPException(status_code=503, detail=error_msg)
 
         res = []
         for match in results.get("matches", []):
@@ -99,9 +120,15 @@ async def retrieve(data: RetrieveRequest):
                 except json.JSONDecodeError:
                     continue
         return res 
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        print(f"Retrieval Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"Retrieval failed: {str(e)}"
+        print(f"Retrieval Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @app.post("/api/solve")
@@ -328,4 +355,4 @@ async def save_chat_message(data: SaveMessageRequest):
 
 
 # -------------------- Run --------------------
-# Run with: uvicorn main:app --reload --port 5000
+# Run with: uvicorn app:app --reload --port 5001

@@ -40,7 +40,7 @@ function App() {
     setHistoryError(null);
 
     try {
-      const response = await fetch('http://localhost:5000/api/chathistory', {
+      const response = await fetch('http://localhost:5001/api/chathistory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userUID }),
@@ -137,7 +137,7 @@ function App() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const retrieveResponse = await fetch('http://localhost:5000/api/retrieve', {
+      const retrieveResponse = await fetch('http://localhost:5001/api/retrieve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userMessage.content, top_n: 2 }),
@@ -145,7 +145,9 @@ function App() {
       });
 
       if (!retrieveResponse.ok) {
-        throw new Error('Failed to retrieve relevant problems');
+        const errorData = await retrieveResponse.json().catch(() => ({}));
+        const errorMessage = errorData.detail || errorData.message || 'Failed to retrieve relevant problems';
+        throw new Error(errorMessage);
       }
 
       const retrievedProblems = await retrieveResponse.json();
@@ -155,7 +157,7 @@ function App() {
 
       setStreamingContent(prev => ({ ...prev, status: 'solving' }));
 
-      const response = await fetch('http://localhost:5000/api/solve', {
+      const response = await fetch('http://localhost:5001/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -317,7 +319,7 @@ function App() {
     if (!userUID) return
 
     try {
-      const response = await fetch('http://localhost:5000/api/chathistory/clear', {
+      const response = await fetch('http://localhost:5001/api/chathistory/clear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userUID }),

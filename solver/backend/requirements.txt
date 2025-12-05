@@ -1,8 +1,11 @@
 flask
 flask-cors
+fastapi
+uvicorn[standard]
 requests
 google-generativeai
 ollama              
 pinecone
 python-dotenv
 redis
+pydantic
