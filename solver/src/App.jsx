@@ -19,11 +19,9 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Check if user is authenticated on mount
   useEffect(() => {
     const userUID = localStorage.getItem('user_uid')
     if (userUID) {
-      // Check if it's a Google user ID (typically a numeric string) or generated UID
       setIsAuthenticated(true)
       userUIDRef.current = userUID
     } else {
@@ -32,14 +30,11 @@ function App() {
     setIsCheckingAuth(false)
   }, [])
 
-  // Google OAuth login handler
+
   const googleLogin = useGoogleLogin({
-    // For popup flows, the redirect URI is typically just the origin
-    // But we can try to use the callback path if configured
-    redirectUri: window.location.origin, // Use origin for popup flows
+    redirectUri: window.location.origin,
     onSuccess: async (tokenResponse) => {
       try {
-        // Get user info from Google
         const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: {
             Authorization: `Bearer ${tokenResponse.access_token}`
@@ -52,13 +47,10 @@ function App() {
         
         const userInfo = await userInfoResponse.json()
         
-        // Store Google user ID in localStorage
         if (userInfo.sub) {
           localStorage.setItem('user_uid', userInfo.sub)
           userUIDRef.current = userInfo.sub
           setIsAuthenticated(true)
-          
-          // Fetch chat history after login
           fetchChatHistory()
         }
       } catch (error) {
