@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useGoogleLogin } from '@react-oauth/google'
 import './App.css'
 
 function App() {
@@ -8,6 +9,8 @@ function App() {
   const [streamingContent, setStreamingContent] = useState(null)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const userUIDRef = useRef(null)
@@ -16,17 +19,86 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  // Check if user is authenticated on mount
   useEffect(() => {
-    let userUID = localStorage.getItem('user_uid')
-    if (!userUID) {
-      userUID = `user_${Math.random().toString(36).substr(2, 9)}`
-      localStorage.setItem('user_uid', userUID)
-      console.log('Created new user UID:', userUID)
+    const userUID = localStorage.getItem('user_uid')
+    if (userUID) {
+      // Check if it's a Google user ID (typically a numeric string) or generated UID
+      setIsAuthenticated(true)
+      userUIDRef.current = userUID
     } else {
-      console.log('Existing user UID:', userUID)
+      setIsAuthenticated(false)
     }
-    userUIDRef.current = userUID
+    setIsCheckingAuth(false)
   }, [])
+
+  // Google OAuth login handler
+  const googleLogin = useGoogleLogin({
+    // For popup flows, the redirect URI is typically just the origin
+    // But we can try to use the callback path if configured
+    redirectUri: window.location.origin, // Use origin for popup flows
+    onSuccess: async (tokenResponse) => {
+      try {
+        // Get user info from Google
+        const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: {
+            Authorization: `Bearer ${tokenResponse.access_token}`
+          }
+        })
+        
+        if (!userInfoResponse.ok) {
+          throw new Error('Failed to fetch user info')
+        }
+        
+        const userInfo = await userInfoResponse.json()
+        
+        // Store Google user ID in localStorage
+        if (userInfo.sub) {
+          localStorage.setItem('user_uid', userInfo.sub)
+          userUIDRef.current = userInfo.sub
+          setIsAuthenticated(true)
+          
+          // Fetch chat history after login
+          fetchChatHistory()
+        }
+      } catch (error) {
+        alert('Failed to complete login. Please try again.')
+      }
+    },
+    onError: (error) => {
+      let errorMessage = 'Login failed. Please try again.'
+      
+      if (error.error === 'redirect_uri_mismatch' || error.error_description?.includes('redirect_uri_mismatch')) {
+        const currentOrigin = window.location.origin
+        
+        errorMessage = `Redirect URI Mismatch Error!\n\n` +
+          `Popup OAuth flows use the ORIGIN (no path) as redirect URI.\n\n` +
+          `You currently have: http://localhost:5173/auth/callback\n` +
+          `But popup flows need: ${currentOrigin}\n\n` +
+          `SOLUTION: In Google Cloud Console:\n` +
+          `1. Go to: APIs & Services → Credentials → Your OAuth 2.0 Client ID\n` +
+          `2. Under "Authorized JavaScript origins", add:\n` +
+          `   - ${currentOrigin}\n` +
+          `   - http://localhost\n` +
+          `   - http://localhost:5173\n\n` +
+          `3. Under "Authorized redirect URIs", ADD THIS:\n` +
+          `   - ${currentOrigin}\n\n` +
+          `   (Keep your existing: http://localhost:5173/auth/callback)\n\n` +
+          `4. Click SAVE\n` +
+          `5. Wait 1-2 minutes, then try again\n\n` +
+          `The popup flow uses ${currentOrigin} (origin only, no path).`
+      }
+      
+      alert(errorMessage)
+    }
+  })
+
+  const handleLogout = () => {
+    localStorage.removeItem('user_uid')
+    setIsAuthenticated(false)
+    setMessages([])
+    userUIDRef.current = null
+  }
 
   const fetchChatHistory = useCallback(async () => {
     const userUID = localStorage.getItem('user_uid')
@@ -79,9 +151,7 @@ function App() {
       })
 
       setMessages(formattedMessages)
-      console.log('Loaded chat history:', formattedMessages.length, 'messages')
     } catch (err) {
-      console.error('Failed to fetch chat history:', err)
       setHistoryError(err.message)
     } finally {
       setHistoryLoading(false)
@@ -89,9 +159,12 @@ function App() {
 
 
   }, []);
+  
   useEffect(() => {
-    fetchChatHistory()
-  }, [fetchChatHistory])
+    if (isAuthenticated) {
+      fetchChatHistory()
+    }
+  }, [fetchChatHistory, isAuthenticated])
 
   useEffect(() => {
     scrollToBottom()
@@ -111,7 +184,7 @@ function App() {
           events.push({ ...currentEvent })
           currentEvent = {}
         } catch (e) {
-          console.error('Failed to parse SSE data:', e)
+          // Failed to parse SSE data
         }
       }
     }
@@ -151,7 +224,6 @@ function App() {
       }
 
       const retrievedProblems = await retrieveResponse.json();
-      console.log('Retrieved Problems:', retrievedProblems);
       const first = retrievedProblems[0]?.problem || "";
       const second = retrievedProblems[1]?.problem || "";
 
@@ -180,9 +252,7 @@ function App() {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        console.log(value);
         buffer += decoder.decode(value, { stream: true });
-        console.log(buffer);
         const events = parseSSE(buffer);
 
         const lastEventEnd = buffer.lastIndexOf('\n\n');
@@ -197,11 +267,9 @@ function App() {
 
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.log('Request was cancelled');
         return;
       }
 
-      console.error('Error:', error);
       setStreamingContent(null);
       const errorMessage = {
         role: 'assistant',
@@ -302,7 +370,8 @@ function App() {
         break;
 
       default:
-        console.log('Unknown event:', event);
+        // Unknown event type
+        break;
     }
   };
 
@@ -327,10 +396,9 @@ function App() {
 
       if (response.ok) {
         setMessages([])
-        console.log('Chat history cleared')
       }
     } catch (err) {
-      console.error('Failed to clear history:', err)
+      // Failed to clear history
     }
   }
 
@@ -502,21 +570,82 @@ function App() {
     <pre className="plain-block">{value}</pre>
   )
 
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="app">
+        <div className="chat-container">
+          <div className="empty-state">
+            <h2>Loading...</h2>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="app">
+        <div className="chat-container">
+          <div className="empty-state">
+            <h2>Welcome to Chat Assistant</h2>
+            <p>Please sign in with Google to continue</p>
+            <button 
+              onClick={googleLogin} 
+              className="login-button"
+              style={{
+                marginTop: '20px',
+                padding: '12px 24px',
+                fontSize: '16px',
+                backgroundColor: '#4285f4',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Sign in with Google
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <div className="chat-container">
         <div className="chat-header">
           <h1>Chat Assistant</h1>
-          {isLoading && (
-            <button onClick={handleCancel} className="cancel-button">
-              Cancel
-            </button>
-          )}
-          {messages.length > 0 && !isLoading && (
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {isLoading && (
+              <button onClick={handleCancel} className="cancel-button">
+                Cancel
+              </button>
+            )}
+            {messages.length > 0 && !isLoading && (
               <button onClick={handleClearHistory} className="cancel-button">
                 Clear History
               </button>
             )}
+            <button 
+              onClick={handleLogout} 
+              className="cancel-button"
+              style={{ fontSize: '14px', padding: '8px 16px' }}
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <div className="messages-container">
