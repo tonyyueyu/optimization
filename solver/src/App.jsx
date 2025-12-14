@@ -2,6 +2,27 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useGoogleLogin } from '@react-oauth/google'
 import './App.css'
 
+const API_BASE = 'http://localhost:5001/api'
+
+// Helper functions - extract code cells from steps
+const extractCodeCells = (steps) => {
+  return steps
+    .map((step) => ({
+      stepNumber: step.number,
+      code: step.code || '',
+      output: step.output || '',
+      error: step.error || '',
+      language: step.language || 'python'
+    }))
+    .filter(cell => cell.code || cell.output || cell.error)
+}
+
+// Helper to truncate text for previews
+const truncateText = (text, maxLength = 100) => {
+  if (!text) return ''
+  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
+}
+
 function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -104,7 +125,7 @@ function App() {
     setHistoryError(null);
 
     try {
-      const response = await fetch('http://localhost:5001/api/chathistory', {
+      const response = await fetch(`${API_BASE}/chathistory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userUID }),
@@ -202,7 +223,7 @@ function App() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const retrieveResponse = await fetch('http://localhost:5001/api/retrieve', {
+      const retrieveResponse = await fetch(`${API_BASE}/retrieve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userMessage.content, top_n: 2 }),
@@ -221,7 +242,7 @@ function App() {
 
       setStreamingContent(prev => ({ ...prev, status: 'solving' }));
 
-      const response = await fetch('http://localhost:5001/api/solve', {
+      const response = await fetch(`${API_BASE}/solve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -330,6 +351,8 @@ function App() {
 
       case 'done':
         setStreamingContent(prev => {
+          if (!prev) return null;
+          
           const finalSteps = prev.steps;
 
           const assistantMessage = finalSteps.length > 0
@@ -347,8 +370,10 @@ function App() {
             };
 
           setMessages(msgs => [...msgs, assistantMessage]);
-          return null;
+          return null
+          
         });
+        setIsLoading(false);
         break;
 
       case 'error':
@@ -362,7 +387,6 @@ function App() {
         break;
 
       default:
-        // Unknown event type
         break;
     }
   };
@@ -380,7 +404,7 @@ function App() {
     if (!userUID) return
 
     try {
-      const response = await fetch('http://localhost:5001/api/chathistory/clear', {
+      const response = await fetch(`${API_BASE}/chathistory/clear`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userUID }),
@@ -401,82 +425,135 @@ function App() {
     }
   }
 
+  // Render a single Jupyter cell
+  const renderJupyterCell = (cell, idx) => (
+    <div key={idx} className="jupyter-cell">
+      {cell.code && (
+        <div className="jupyter-input-cell">
+          <div className="jupyter-cell-prompt">In [{cell.stepNumber}]:</div>
+          <div className="jupyter-code-content">
+            <pre className="jupyter-code"><code>{cell.code}</code></pre>
+          </div>
+        </div>
+      )}
+      {cell.output && (
+        <div className="jupyter-output-cell">
+          <div className="jupyter-cell-prompt">Out [{cell.stepNumber}]:</div>
+          <div className="jupyter-output-content">
+            <pre className="jupyter-output">{cell.output}</pre>
+          </div>
+        </div>
+      )}
+      {cell.error && (
+        <div className="jupyter-error-cell">
+          <div className="jupyter-cell-prompt">Error:</div>
+          <div className="jupyter-error-content">
+            <pre className="jupyter-error">{cell.error}</pre>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  // Render step preview (output/error)
+  const renderStepPreview = (step) => (
+    <>
+      {step.output && (
+        <div className="step-field">
+          <div className="step-label">Output</div>
+          <div className="step-output-preview">{truncateText(step.output)}</div>
+        </div>
+      )}
+      {step.error && (
+        <div className="step-field error">
+          <div className="step-label">Error</div>
+          <div className="step-error-preview">{truncateText(step.error)}</div>
+        </div>
+      )}
+    </>
+  )
+
   const renderStreamingContent = () => {
     if (!streamingContent) return null;
+
+    const codeCells = extractCodeCells(streamingContent.steps);
 
     return (
       <div className="message assistant">
         <div className="message-content">
-          <div className="assistant-message streaming">
-            <div className="steps-header">
-              <div className="steps-title">
-                <span role="img" aria-label="solution">📝</span>
-                <span>Solution Steps</span>
-                <span className="streaming-indicator">
-                  <span className="pulse"></span>
-                  {streamingContent.status === 'retrieving' && ' Retrieving...'}
-                  {streamingContent.status === 'generating' && ` Generating Step ${streamingContent.currentStep}...`}
-                  {streamingContent.status === 'executing' && ` Executing Step ${streamingContent.currentStep}...`}
-                  {streamingContent.status === 'waiting' && ' Processing...'}
-                </span>
+          <div className="assistant-message streaming two-column-layout">
+            <div className="steps-column">
+              <div className="steps-header">
+                <div className="steps-title">
+                  <span role="img" aria-label="solution">📝</span>
+                  <span>Solution Steps</span>
+                  <span className="streaming-indicator">
+                    <span className="pulse"></span>
+                    {streamingContent.status === 'retrieving' && ' Retrieving...'}
+                    {streamingContent.status === 'generating' && ` Generating Step ${streamingContent.currentStep}...`}
+                    {streamingContent.status === 'executing' && ` Executing Step ${streamingContent.currentStep}...`}
+                    {streamingContent.status === 'waiting' && ' Processing...'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="steps-list">
+                {/* Completed steps */}
+                {streamingContent.steps.map((step) => (
+                  <div key={step.number} className="step-container">
+                    <div className="step-header">
+                      <span className="step-number">{step.number}</span>
+                      <span className="step-title">{step.title}</span>
+                      <span className="step-status complete">✓</span>
+                    </div>
+                    <div className="step-content">
+                      {step.description && (
+                        <p className="step-text">{step.description}</p>
+                      )}
+                      {renderStepPreview(step)}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Currently streaming step */}
+                {streamingContent.currentStep && (
+                  <div className="step-container streaming-step">
+                    <div className="step-header">
+                      <span className="step-number">{streamingContent.currentStep}</span>
+                      <span className="step-title">Step {streamingContent.currentStep}</span>
+                      <span className="step-status generating">
+                        <span className="spinner"></span>
+                      </span>
+                    </div>
+                    <div className="step-content">
+                      {streamingContent.currentTokens && (
+                        <div className="streaming-tokens">
+                          <pre className="token-stream">{streamingContent.currentTokens}</pre>
+                          <span className="cursor">|</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="steps-list">
-              {/* Completed steps */}
-              {streamingContent.steps.map((step) => (
-                <div key={step.number} className="step-container">
-                  <div className="step-header">
-                    <span className="step-number">{step.number}</span>
-                    <span className="step-title">{step.title}</span>
-                    <span className="step-status complete">✓</span>
-                  </div>
-                  <div className="step-content">
-                    {step.description && (
-                      <p className="step-text">{step.description}</p>
-                    )}
-                    {step.code && (
-                      <div className="step-field">
-                        <div className="step-label">Code</div>
-                        {renderCodeBlock(step.code, step.language)}
-                      </div>
-                    )}
-                    {step.output && (
-                      <div className="step-field">
-                        <div className="step-label">Output</div>
-                        {renderPlainBlock(step.output)}
-                      </div>
-                    )}
-                    {step.error && (
-                      <div className="step-field error">
-                        <div className="step-label">Error</div>
-                        {renderPlainBlock(step.error)}
-                      </div>
-                    )}
-                  </div>
+            <div className="code-column">
+              <div className="jupyter-header">
+                <div className="jupyter-title">
+                  <span role="img" aria-label="code">💻</span>
+                  <span>Code & Output</span>
                 </div>
-              ))}
-
-              {/* Currently streaming step */}
-              {streamingContent.currentStep && (
-                <div className="step-container streaming-step">
-                  <div className="step-header">
-                    <span className="step-number">{streamingContent.currentStep}</span>
-                    <span className="step-title">Step {streamingContent.currentStep}</span>
-                    <span className="step-status generating">
-                      <span className="spinner"></span>
-                    </span>
-                  </div>
-                  <div className="step-content">
-                    {streamingContent.currentTokens && (
-                      <div className="streaming-tokens">
-                        <pre className="token-stream">{streamingContent.currentTokens}</pre>
-                        <span className="cursor">|</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              </div>
+               <div className="jupyter-notebook">
+                 {codeCells.length > 0 ? (
+                   codeCells.map(renderJupyterCell)
+                 ) : (
+                   <div className="jupyter-empty">
+                     <p>No code cells yet...</p>
+                   </div>
+                 )}
+               </div>
             </div>
           </div>
         </div>
@@ -496,51 +573,58 @@ function App() {
     return renderUserMessage(message.content);
   }
 
-  const renderAssistantSteps = (message) => (
-    <div className="assistant-message">
-      <div className="steps-header">
-        <div className="steps-title">
-          <span role="img" aria-label="solution">📝</span>
-          <span>{message.title || 'Solution Steps'}</span>
-        </div>
-        {message.summary && <p className="steps-summary">{message.summary}</p>}
-      </div>
+  const renderAssistantSteps = (message) => {
+    const codeCells = extractCodeCells(message.steps);
 
-      <div className="steps-list">
-        {message.steps.map((step) => (
-          <div key={step.number} className="step-container">
-            <div className="step-header">
-              <span className="step-number">{step.number}</span>
-              <span className="step-title">{step.title}</span>
+    return (
+      <div className="assistant-message two-column-layout">
+        <div className="steps-column">
+          <div className="steps-header">
+            <div className="steps-title">
+              <span role="img" aria-label="solution">📝</span>
+              <span>{message.title || 'Solution Steps'}</span>
             </div>
-            <div className="step-content">
-              {step.description && (
-                <p className="step-text">{step.description}</p>
-              )}
-              {step.code && (
-                <div className="step-field">
-                  <div className="step-label">Code</div>
-                  {renderCodeBlock(step.code, step.language)}
+            {message.summary && <p className="steps-summary">{message.summary}</p>}
+          </div>
+
+          <div className="steps-list">
+            {message.steps.map((step) => (
+              <div key={step.number} className="step-container">
+                <div className="step-header">
+                  <span className="step-number">{step.number}</span>
+                  <span className="step-title">{step.title}</span>
                 </div>
-              )}
-              {step.output && (
-                <div className="step-field">
-                  <div className="step-label">Output</div>
-                  {renderPlainBlock(step.output)}
+                <div className="step-content">
+                  {step.description && (
+                    <p className="step-text">{step.description}</p>
+                  )}
+                  {renderStepPreview(step)}
                 </div>
-              )}
-              {step.error && (
-                <div className="step-field error">
-                  <div className="step-label">Error</div>
-                  {renderPlainBlock(step.error)}
-                </div>
-              )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="code-column">
+          <div className="jupyter-header">
+            <div className="jupyter-title">
+              <span role="img" aria-label="code">💻</span>
+              <span>Code & Output</span>
             </div>
           </div>
-        ))}
+          <div className="jupyter-notebook">
+            {codeCells.length > 0 ? (
+              codeCells.map(renderJupyterCell)
+            ) : (
+              <div className="jupyter-empty">
+                <p>No code cells to display</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  )
+    );
+  }
 
   const renderPlainText = (text = '') => (
     <div className="assistant-message">
@@ -651,7 +735,22 @@ function App() {
                   </div>
                 </div>
               ))}
-              {renderStreamingContent()}
+              {/* Only show streaming content if it exists, we're still loading, AND the last message isn't already the final one */}
+              {(() => {
+                if (!streamingContent || !isLoading) return null;
+                
+                const lastMessage = messages[messages.length - 1];
+                // Check if we already have the final message to prevent duplicate rendering
+                const hasFinalMessage = lastMessage && 
+                  lastMessage.role === 'assistant' && 
+                  lastMessage.type === 'steps' &&
+                  streamingContent.steps.length > 0 &&
+                  lastMessage.steps?.length === streamingContent.steps.length &&
+                  lastMessage.steps?.[0]?.number === streamingContent.steps[0]?.number;
+                
+                // Only render streaming if we don't already have the final message
+                return hasFinalMessage ? null : renderStreamingContent();
+              })()}
             </>
           )}
           <div ref={messagesEndRef} />
