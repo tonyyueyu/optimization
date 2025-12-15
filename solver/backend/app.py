@@ -27,7 +27,7 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
 index = pc.Index(index_name)
 
-CHAT_MODEL_NAME = "gemini-2.5-pro"
+CHAT_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
 history_manager = HistoryManager()
@@ -272,6 +272,7 @@ async def solve(data: SolveRequest):
                 "code": step_data.get("code"),
                 "output": execution_result["output"],
                 "error": execution_result["error"],
+                "plots": execution_result.get("plots", []),
             }
             step_history.append(full_step_record)
 

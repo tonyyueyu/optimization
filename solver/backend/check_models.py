@@ -2,7 +2,7 @@ import google.generativeai as genai
 import os
 
 # Ensure your key is set in the terminal: export GOOGLE_API_KEY="AIza..."
-genai.configure(api_key='AIzaSyBrvSXMNVekTckiUfDcq9GkOnIDxjExOSQ')
+genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
 
 print("Available Models:")
 for m in genai.list_models():

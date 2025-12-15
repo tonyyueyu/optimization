@@ -1,103 +1,112 @@
-import json
-import redis
 import os
 import uuid
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import Dict, List, Any, Optional
 
-# Connect to Redis
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, db
 
-try:
-    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-    r.ping()
-    print("✓ Redis connected successfully")
-except Exception as e:
-    print(f"Warning: Redis connection failed. History will not work. {e}")
-    r = None
+load_dotenv()
+
+# -------------------- Firebase Initialization --------------------
+
+def init_firebase():
+    """
+    Initialize Firebase using env vars.
+    This runs once per process.
+    """
+    if firebase_admin._apps:
+        return
+
+    cred_dict = {
+        "type": os.getenv("FIREBASE_TYPE"),
+        "project_id": os.getenv("FIREBASE_PROJECT_ID"),
+        "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
+        "private_key": os.getenv("FIREBASE_PRIVATE_KEY").replace("\\n", "\n"),
+        "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
+        "client_id": os.getenv("FIREBASE_CLIENT_ID"),
+        "auth_uri": os.getenv("FIREBASE_AUTH_URI"),
+        "token_uri": os.getenv("FIREBASE_TOKEN_URI"),
+        "auth_provider_x509_cert_url": os.getenv("FIREBASE_AUTH_PROVIDER_X509_CERT_URL"),
+        "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL"),
+        "universe_domain": os.getenv("FIREBASE_UNIVERSE_DOMAIN"),
+    }
+
+    cred = credentials.Certificate(cred_dict)
+
+    firebase_admin.initialize_app(
+        cred,
+        {"databaseURL": os.getenv("FIREBASE_DB_URL")}
+    )
+
+
+init_firebase()
+
+
+# -------------------- History Manager --------------------
 
 class HistoryManager:
+    """
+    Firebase structure:
+
+    /chat_history
+        /{user_id}
+            /{chat_id}
+                chat_id
+                user_id
+                message
+                timestamp
+    """
+
     def __init__(self):
-        self.redis = r
-    
-    def getUserHistoryKey(self, user_id: str) -> str:
-        return f"chat_history:{user_id}"
-    
-    def getChatKey(self, chat_id: str) -> str:
-        return f"chat:{chat_id}"
-    
-    def fetch_chat(self, chat_id: str) -> Optional[Dict[str, Any]]:
-        if not self.redis:
-            print("Redis not connected")
-            return None
+        self.root = db.reference("chat_history")
 
-        key = self.getChatKey(chat_id)
-        value = self.redis.get(key)
-        
-        if not value:
-            return None
+    def _user_ref(self, user_id: str):
+        return self.root.child(user_id)
 
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            print(f"Warning: Chat {chat_id} is not valid JSON")
-            return None
-    
+
     def fetch_user_history(self, user_id: str) -> List[Dict[str, Any]]:
-        if not self.redis:
-            print("Redis not connected")
+        """
+        Get all chat messages for a user.
+        """
+        data = self._user_ref(user_id).get()
+
+        if not data:
             return []
 
-        key = self.getUserHistoryKey(user_id)
+        messages = list(data.values())
 
-        chat_ids = self.redis.lrange(key, 0, -1)
+        messages.sort(key=lambda x: x.get("timestamp", ""))
 
-        messages = []
-
-        for chat_id in chat_ids:
-            chat = self.fetch_chat(chat_id)
-            if chat:
-                messages.append(chat)
-        
         return messages
 
     def save_message(self, user_id: str, message: Dict[str, Any]) -> str:
-        if not self.redis:
-            print("Redis not connected")
-            return ""
-        
-        chat_id = f"{user_id}_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
+        """
+        Save a single chat message.
+        """
+        chat_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
 
-        message_with_meta = {
+        payload = {
             **message,
             "chat_id": chat_id,
-            "timestamp": datetime.now().isoformat(),
-            "user_id": user_id
+            "user_id": user_id,
+            "timestamp": datetime.utcnow().isoformat()
         }
 
-        chat_key = self.getChatKey(chat_id)
-        self.redis.set(chat_key, json.dumps(message_with_meta))
-
-        history_key = self.getUserHistoryKey(user_id)
-        self.redis.rpush(history_key, chat_id)
+        self._user_ref(user_id).child(chat_id).set(payload)
 
         return chat_id
-    
+
+    def fetch_chat(self, user_id: str, chat_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single chat by ID.
+        """
+        return self._user_ref(user_id).child(chat_id).get()
+
     def clear_user_history(self, user_id: str) -> bool:
-        if not self.redis:
-            return False
-
-        history_key = self.getUserHistoryKey(user_id)   
-        
-        chat_ids = self.redis.lrange(history_key, 0, -1)
-
-        for chat_id in chat_ids:
-            chat_key = self.getChatKey(chat_id)
-            self.redis.delete(chat_key)
-        
-        self.redis.delete(history_key)
-        
+        """
+        Delete all chat history for a user.
+        """
+        self._user_ref(user_id).delete()
         return True
-
-        

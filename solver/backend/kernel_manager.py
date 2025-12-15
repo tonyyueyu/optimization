@@ -3,7 +3,6 @@ from jupyter_client import KernelManager
 
 class PersistentKernel:
     def __init__(self, kernel_name='math_opt_kernel'):
-        # Start the kernel
         self.km = KernelManager(kernel_name=kernel_name)
         self.km.start_kernel()
         self.kc = self.km.client()
@@ -17,23 +16,26 @@ class PersistentKernel:
 
     def execute_code(self, code_string):
         if not code_string or not code_string.strip():
-            return {"output": "", "error": "No code provided"}
+            return {"output": "", "error": "No code provided", "plots": []}
+
+        # Prepend mathlib import so users can use math functions without import
+        full_code = "import math as mathlib\n" + code_string
 
         # Send code to the kernel
         try:
-            msg_id = self.kc.execute(code_string)
+            msg_id = self.kc.execute(full_code)
         except Exception as e:
-            return {"output": "", "error": f"Connection error: {str(e)}"}
+            return {"output": "", "error": f"Connection error: {str(e)}", "plots": []}
 
         output_text = []
         error_text = []
+        plots = []
 
         while True:
             try:
-                # We wait for messages from the kernel
                 msg = self.kc.get_iopub_msg(timeout=10)
 
-                # 1. Capture standard output (print statements)
+                # 1. Capture standard output
                 if msg['msg_type'] == 'stream':
                     content = msg['content']
                     if content['name'] == 'stdout':
@@ -41,26 +43,31 @@ class PersistentKernel:
                     elif content['name'] == 'stderr':
                         error_text.append(content['text'])
 
-                # 2. Capture runtime errors (tracebacks)
+                # 2. Capture runtime errors
                 elif msg['msg_type'] == 'error':
                     content = msg['content']
-                    # Construct a readable error message
                     error_msg = f"{content['ename']}: {content['evalue']}"
                     error_text.append(error_msg)
 
-                # 3. Check if execution is finished
+                # 3. Capture plots
+                elif msg['msg_type'] == 'display_data':
+                    data = msg['content'].get("data", {})
+                    if "image/png" in data:
+                        plots.append(data["image/png"])
+
+                # 4. Check if execution is finished
                 if msg['msg_type'] == 'status' and msg['content']['execution_state'] == 'idle':
-                    # Only break if this idle status belongs to OUR execution request
                     if msg['parent_header'].get('msg_id') == msg_id:
                         break
-            
+
             except queue.Empty:
                 error_text.append("Timeout: Execution took too long.")
                 break
 
         return {
             "output": "".join(output_text),
-            "error": "".join(error_text)
+            "error": "".join(error_text),
+            "plots": plots
         }
 
     def shutdown(self):
