@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useGoogleLogin } from '@react-oauth/google'
 import './App.css'
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignOutButton,
+  UserButton,
+  useUser
+} from '@clerk/clerk-react'
 
 const API_BASE = 'http://localhost:5001/api'
 
@@ -31,95 +38,18 @@ function App() {
   const [streamingContent, setStreamingContent] = useState(null)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState(null)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const { isLoaded, isSignedIn, user } = useUser()
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
-  const userUIDRef = useRef(null)
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  useEffect(() => {
-    const userUID = localStorage.getItem('user_uid')
-    if (userUID) {
-      setIsAuthenticated(true)
-      userUIDRef.current = userUID
-    } else {
-      setIsAuthenticated(false)
-    }
-    setIsCheckingAuth(false)
-  }, [])
-
-
-  const googleLogin = useGoogleLogin({
-    redirectUri: window.location.origin,
-    onSuccess: async (tokenResponse) => {
-      try {
-        const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: {
-            Authorization: `Bearer ${tokenResponse.access_token}`
-          }
-        })
-
-        if (!userInfoResponse.ok) {
-          throw new Error('Failed to fetch user info')
-        }
-
-        const userInfo = await userInfoResponse.json()
-
-        if (userInfo.sub) {
-          localStorage.setItem('user_uid', userInfo.sub)
-          userUIDRef.current = userInfo.sub
-          setIsAuthenticated(true)
-          fetchChatHistory()
-        }
-      } catch (error) {
-        alert('Failed to complete login. Please try again.')
-      }
-    },
-    onError: (error) => {
-      let errorMessage = 'Login failed. Please try again.'
-
-      if (error.error === 'redirect_uri_mismatch' || error.error_description?.includes('redirect_uri_mismatch')) {
-        const currentOrigin = window.location.origin
-
-        errorMessage = `Redirect URI Mismatch Error!\n\n` +
-          `Popup OAuth flows use the ORIGIN (no path) as redirect URI.\n\n` +
-          `You currently have: http://localhost:5173/auth/callback\n` +
-          `But popup flows need: ${currentOrigin}\n\n` +
-          `SOLUTION: In Google Cloud Console:\n` +
-          `1. Go to: APIs & Services → Credentials → Your OAuth 2.0 Client ID\n` +
-          `2. Under "Authorized JavaScript origins", add:\n` +
-          `   - ${currentOrigin}\n` +
-          `   - http://localhost\n` +
-          `   - http://localhost:5173\n\n` +
-          `3. Under "Authorized redirect URIs", ADD THIS:\n` +
-          `   - ${currentOrigin}\n\n` +
-          `   (Keep your existing: http://localhost:5173/auth/callback)\n\n` +
-          `4. Click SAVE\n` +
-          `5. Wait 1-2 minutes, then try again\n\n` +
-          `The popup flow uses ${currentOrigin} (origin only, no path).`
-      }
-
-      alert(errorMessage)
-    }
-  })
-
-  const handleLogout = () => {
-    localStorage.removeItem('user_uid')
-    setIsAuthenticated(false)
-    setMessages([])
-    userUIDRef.current = null
-  }
-
-  const fetchChatHistory = useCallback(async () => {
-    const userUID = localStorage.getItem('user_uid')
-
+  const fetchChatHistory = useCallback(async (userUID) => {
     if (!userUID) {
-      setHistoryLoading(false);
-      return;
+      setHistoryLoading(false)
+      setMessages([])
+      return
     }
 
     setHistoryLoading(true);
@@ -173,13 +103,15 @@ function App() {
     }
 
 
-  }, []);
+  }, [])
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchChatHistory()
+    if (isSignedIn && user?.id) {
+      fetchChatHistory(user.id)
+    } else {
+      setMessages([])
     }
-  }, [fetchChatHistory, isAuthenticated])
+  }, [fetchChatHistory, isSignedIn, user?.id])
 
   useEffect(() => {
     scrollToBottom()
@@ -209,7 +141,11 @@ function App() {
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    const userUID = localStorage.getItem('user_uid')
+    const userUID = user?.id
+    if (!isSignedIn || !userUID) {
+      alert('Please sign in to continue.')
+      return
+    }
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -403,7 +339,7 @@ function App() {
   };
 
   const handleClearHistory = async () => {
-    const userUID = localStorage.getItem('user_uid')
+    const userUID = user?.id
     if (!userUID) return
 
     try {
@@ -665,7 +601,7 @@ function App() {
   )
 
   // Show loading state while checking authentication
-  if (isCheckingAuth) {
+  if (!isLoaded) {
     return (
       <div className="app">
         <div className="chat-container">
@@ -677,137 +613,128 @@ function App() {
     )
   }
 
-  // Show login screen if not authenticated
-  if (!isAuthenticated) {
-    return (
-      <div className="app">
-        <div className="chat-container">
-          <div className="empty-state">
-            <h2>Welcome to Chat Assistant</h2>
-            <p>Please sign in with Google to continue</p>
-            <button
-              onClick={googleLogin}
-              className="login-button"
-              style={{
-                marginTop: '20px',
-                padding: '12px 24px',
-                fontSize: '16px',
-                backgroundColor: '#4285f4',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Sign in with Google
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="app">
-      <div className="chat-container">
-        <div className="chat-header">
-          <h1>Chat Assistant</h1>
-          <div className="header-buttons">
-            {isLoading && (
-              <button onClick={handleCancel} className="cancel-button">
-                Cancel
-              </button>
-            )}
-            {messages.length > 0 && !isLoading && (
-              <button onClick={handleClearHistory} className="cancel-button">
-                Clear History
-              </button>
-            )}
-            <button onClick={handleLogout} className="cancel-button logout-button">
-              Logout
-            </button>
-          </div>
-        </div>
-
-        <div className="messages-container">
-          {messages.length === 0 && !streamingContent ? (
+    <>
+      <SignedOut>
+        <div className="app">
+          <div className="chat-container">
             <div className="empty-state">
-              <h2>Start a conversation</h2>
-              <p>Type a message below to begin</p>
+              <h2>Welcome to Chat Assistant</h2>
+              <p>Please sign in to continue</p>
+              <SignInButton mode="modal">
+                <button
+                  className="login-button"
+                  style={{
+                    marginTop: '20px',
+                    padding: '12px 24px',
+                    fontSize: '16px'
+                  }}
+                >
+                  Sign in with Clerk
+                </button>
+              </SignInButton>
             </div>
-          ) : (
-            <>
-              {messages.map((message, index) => (
-                <div key={index} className={`message ${message.role}`}>
-                  <div className="message-content">
-                    {renderMessageContent(message)}
-                  </div>
-                </div>
-              ))}
-              {/* Only show streaming content if it exists, we're still loading, AND the last message isn't already the final one */}
-              {(() => {
-                if (!streamingContent || !isLoading) return null;
-                
-                const lastMessage = messages[messages.length - 1];
-                // Check if we already have the final message to prevent duplicate rendering
-                const hasFinalMessage = lastMessage && 
-                  lastMessage.role === 'assistant' && 
-                  lastMessage.type === 'steps' &&
-                  streamingContent.steps.length > 0 &&
-                  lastMessage.steps?.length === streamingContent.steps.length &&
-                  lastMessage.steps?.[0]?.number === streamingContent.steps[0]?.number;
-                
-                // Only render streaming if we don't already have the final message
-                return hasFinalMessage ? null : renderStreamingContent();
-              })()}
-            </>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="input-container">
-          <div className="input-wrapper">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Type your message here..."
-              rows={1}
-              disabled={isLoading}
-              className="chat-input"
-            />
-            <button
-              onClick={handleSend}
-              disabled={isLoading || !input.trim()}
-              className="send-button"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-              </svg>
-            </button>
           </div>
         </div>
-      </div>
-    </div>
+      </SignedOut>
+
+      <SignedIn>
+        <div className="app">
+          <div className="chat-container">
+            <div className="chat-header">
+              <h1>Chat Assistant</h1>
+              <div className="header-buttons">
+                {isLoading && (
+                  <button onClick={handleCancel} className="cancel-button">
+                    Cancel
+                  </button>
+                )}
+                {messages.length > 0 && !isLoading && (
+                  <button onClick={handleClearHistory} className="cancel-button">
+                    Clear History
+                  </button>
+                )}
+                <UserButton />
+                <SignOutButton signOutCallback={() => setMessages([])}>
+                  <button className="cancel-button logout-button">
+                    Logout
+                  </button>
+                </SignOutButton>
+              </div>
+            </div>
+
+            <div className="messages-container">
+              {messages.length === 0 && !streamingContent ? (
+                <div className="empty-state">
+                  <h2>Start a conversation</h2>
+                  <p>Type a message below to begin</p>
+                </div>
+              ) : (
+                <>
+                  {messages.map((message, index) => (
+                    <div key={index} className={`message ${message.role}`}>
+                      <div className="message-content">
+                        {renderMessageContent(message)}
+                      </div>
+                    </div>
+                  ))}
+                  {/* Only show streaming content if it exists, we're still loading, AND the last message isn't already the final one */}
+                  {(() => {
+                    if (!streamingContent || !isLoading) return null;
+                    
+                    const lastMessage = messages[messages.length - 1];
+                    // Check if we already have the final message to prevent duplicate rendering
+                    const hasFinalMessage = lastMessage && 
+                      lastMessage.role === 'assistant' && 
+                      lastMessage.type === 'steps' &&
+                      streamingContent.steps.length > 0 &&
+                      lastMessage.steps?.length === streamingContent.steps.length &&
+                      lastMessage.steps?.[0]?.number === streamingContent.steps[0]?.number;
+                    
+                    // Only render streaming if we don't already have the final message
+                    return hasFinalMessage ? null : renderStreamingContent();
+                  })()}
+                </>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <div className="input-container">
+              <div className="input-wrapper">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  placeholder="Type your message here..."
+                  rows={1}
+                  disabled={isLoading}
+                  className="chat-input"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={isLoading || !input.trim()}
+                  className="send-button"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </SignedIn>
+    </>
   )
 }
 
