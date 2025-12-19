@@ -6,3 +6,5 @@ scipy
 sympy
 pandas
 matplotlib
+cadquery
+cadquery-ocp

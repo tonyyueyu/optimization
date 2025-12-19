@@ -8,6 +8,7 @@ import {
   UserButton,
   useUser
 } from '@clerk/clerk-react'
+import CadUpload from './components/CadUpload'
 
 const API_BASE = 'http://localhost:5001/api'
 
@@ -37,6 +38,17 @@ function App() {
   const [streamingContent, setStreamingContent] = useState(null)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState(null)
+  const [cadContext, setCadContext] = useState(null)
+
+  const handleCadAnalyzed = (summary) => {
+    setCadContext(summary);
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      type: 'text', 
+      content: `✅ CAD File Analyzed.\n${summary}` 
+    }]);
+  };
+
   const { isLoaded, isSignedIn, user } = useUser()
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
@@ -144,6 +156,13 @@ function App() {
       alert('Please sign in to continue.')
       return
     }
+    // --- NEW LOGIC START ---
+    let finalQuery = input.trim();
+    if (cadContext) {
+      finalQuery = `CONTEXT FROM CAD FILE:\n${cadContext}\n\nUSER QUERY: ${finalQuery}`;
+    }
+    // --- NEW LOGIC END ---
+
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -637,12 +656,17 @@ function App() {
                   </button>
                 )}
                 <UserButton />
-                <SignOutButton signOutCallback={() => setMessages([])}>
+                <SignOutButton>
                   <button className="cancel-button logout-button">
                     Logout
                   </button>
                 </SignOutButton>
               </div>
+            {/* --- ADD THIS BLOCK --- */}
+            <div style={{ padding: '0 20px', marginBottom: '10px' }}>
+              <CadUpload onAnalysisComplete={handleCadAnalyzed} />
+            </div>
+            {/* ---------------------- */}
             </div>
 
             <div className="messages-container">
