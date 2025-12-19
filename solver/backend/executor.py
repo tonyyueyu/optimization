@@ -1,76 +1,62 @@
-# executor.py (Runs INSIDE Docker)
-from flask import Flask, request, jsonify
-from kernel_manager import PersistentKernel
-import cadquery as cq # Import the CAD engine
-import tempfile
 import os
+import shutil
+import uvicorn
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from pydantic import BaseModel
+from kernel_manager import PersistentKernel
 
-app = Flask(__name__)
+# Initialize FastAPI
+app = FastAPI()
 
-# Single global kernel for simplicity (or use a dict for sessions)
-# This uses the same class we wrote earlier
+# Single global kernel
 kernel = PersistentKernel()
 
-def get_cad_info(file_path):
-    """Helper to extract volume and bounding box from STEP file"""
+# Pydantic model for request validation
+class CodeRequest(BaseModel):
+    code: str
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Empty filename")
+
+    # Define save path (current working directory)
+    save_directory = os.getcwd()
+    file_path = os.path.join(save_directory, file.filename)
+
     try:
-        model = cq.importers.importStep(file_path)
-        solid = model.val()
-        
-        # Calculate properties
-        vol = solid.Volume()
-        bb = solid.BoundingBox()
-        
+        # FastAPI uses 'spooled' temporary files, so we copy them to disk
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
         return {
-            "volume": vol,
-            "bbox": {
-                "x_len": bb.xlen,
-                "y_len": bb.ylen,
-                "z_len": bb.zlen
-            },
-            "summary": f"Volume: {vol:.2f}, BBox: {bb.xlen:.2f}x{bb.ylen:.2f}x{bb.zlen:.2f}"
+            "status": "success",
+            "filename": file.filename,
+            "path": file_path,
+            "summary": f"File '{file.filename}' successfully uploaded to {file_path}."
         }
     except Exception as e:
-        return {"error": str(e)}
-    
-@app.route('/upload_cad', methods=['POST'])
-def upload_cad():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "Empty filename"}), 400
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
-    # Save temp file, analyze, then delete
-    with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as temp:
-        file.save(temp.name)
-        temp_path = temp.name
+@app.post("/execute")
+async def execute(request: CodeRequest):
+    code = request.code
     
-    # Analyze
-    result = get_cad_info(temp_path)
-    
-    # Cleanup
-    os.remove(temp_path)
-    
-    return jsonify(result)
-
-@app.route('/execute', methods=['POST'])
-def execute():
-    data = request.json
-    code = data.get('code', '')
-    
-    print(f"Executing: {code}") # Log inside container
+    print(f"Executing: {code}")  # Log to Docker stdout
     
     # Run the code using your existing Logic
-    result = kernel.execute_code(code)
-    
-    return jsonify(result)
+    # Note: If kernel.execute_code is blocking, it's fine for now, 
+    # but in high-load async apps you'd typically await it or wrap it.
+    try:
+        result = kernel.execute_code(code)
+        return result
+    except Exception as e:
+        # Gracefully handle kernel crashes or errors
+        return {"status": "error", "error": str(e)}
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": "ready"})
+@app.get("/health")
+async def health():
+    return {"status": "ready"}
 
-if __name__ == '__main__':
-    # Listen on port 8000 inside the container
-    app.run(host='0.0.0.0', port=8000)
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

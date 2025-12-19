@@ -1,0 +1,34 @@
+name: base
+channels:
+  - conda-forge
+dependencies:
+  # --- Core Runtime ---
+  - python=3.10
+  - pip
+
+  # --- Web & Kernel Infrastructure ---
+  - fastapi               # <--- ADDED
+  - uvicorn               # <--- ADDED
+  - python-multipart      # <--- REQUIRED for file uploads
+  - jupyter_client
+  - ipykernel
+  - jupyterlab
+
+  # --- Math & Data Science ---
+  - numpy
+  - scipy
+  - pandas
+  - sympy
+  - matplotlib
+
+  # --- Optimization Frameworks ---
+  - cvxpy
+  - pyomo
+
+  # --- CAD Geometry ---
+  - cadquery=2.6
+
+  # --- Binary Solvers ---
+  - ipopt
+  - highs
+  - glpk

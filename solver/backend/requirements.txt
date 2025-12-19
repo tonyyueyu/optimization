@@ -9,7 +9,4 @@ pinecone
 python-dotenv
 redis
 pydantic
-# CAD Analysis Dependencies
-cadquery
-numpy
-cadquery-ocp
+python-multipart

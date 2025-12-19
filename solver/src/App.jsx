@@ -8,11 +8,66 @@ import {
   UserButton,
   useUser
 } from '@clerk/clerk-react'
-import CadUpload from './components/CadUpload'
 
 const API_BASE = 'http://localhost:5001/api'
 
-// Helper functions - extract code cells from steps
+// --- NEW HELPER: Formats the retrieved JSON into a detailed string for the AI ---
+const formatReference = (data) => {
+  if (!data) return "";
+  
+  let formatted = `PROBLEM DESCRIPTION:\n${data.problem}\n\n`;
+  
+  if (data.solution) {
+    formatted += `SOLUTION SUMMARY:\n${data.solution}\n\n`;
+  }
+  
+  if (data.steps && Array.isArray(data.steps)) {
+    formatted += `REFERENCE IMPLEMENTATION STEPS:\n`;
+    data.steps.forEach(step => {
+      formatted += `Step ${step.step_number}: ${step.description}\n`;
+      formatted += `Code:\n${step.code}\n\n`;
+    });
+  }
+  
+  return formatted;
+};
+// --------------------------------------------------------------------------------
+
+// --- NEW TYPEWRITER COMPONENT ---
+const Typewriter = ({ text, isThinking = false }) => {
+  const [displayedText, setDisplayedText] = useState('')
+  const targetTextRef = useRef(text)
+  const speed = 15 // ms per character
+
+  useEffect(() => {
+    targetTextRef.current = text
+  }, [text])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDisplayedText((current) => {
+        const target = targetTextRef.current
+        if (current.length < target.length) {
+          return target.slice(0, current.length + 1)
+        } else if (current.length > target.length) {
+          return target
+        }
+        return current
+      })
+    }, speed)
+
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <pre className="token-stream">
+      {displayedText}
+      {displayedText.length < text.length || isThinking ? <span className="cursor">|</span> : null}
+    </pre>
+  )
+}
+// --------------------------------
+
 const extractCodeCells = (steps) => {
   return steps
     .map((step) => ({
@@ -25,7 +80,6 @@ const extractCodeCells = (steps) => {
     .filter(cell => cell.code || cell.output || cell.error)
 }
 
-// Helper to truncate text for previews
 const truncateText = (text, maxLength = 100) => {
   if (!text) return ''
   return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
@@ -35,26 +89,89 @@ function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const [streamingContent, setStreamingContent] = useState(null)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState(null)
-  const [cadContext, setCadContext] = useState(null)
-
-  const handleCadAnalyzed = (summary) => {
-    setCadContext(summary);
-    setMessages(prev => [...prev, { 
-      role: 'assistant', 
-      type: 'text', 
-      content: `✅ CAD File Analyzed.\n${summary}` 
-    }]);
-  };
+  const [fileContext, setFileContext] = useState(null)
 
   const { isLoaded, isSignedIn, user } = useUser()
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
+  const fileInputRef = useRef(null)
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
+
+  const handleFileUpload = async (file) => {
+    if (!file || !user?.id) return;
+
+    setIsUploading(true);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('user_id', user.id); 
+
+    try {
+      const response = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+         const errorText = await response.text();
+         throw new Error(`Upload failed: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const summary = data.summary || `File '${file.name}' uploaded successfully.`;
+      
+      setFileContext(summary);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        type: 'text', 
+        content: `✅ File uploaded: ${file.name}\n${summary}` 
+      }]);
+
+    } catch (error) {
+      console.error("Upload error:", error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        type: 'text', 
+        content: `❌ Error uploading file: ${error.message}` 
+      }]);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isLoading && !isUploading) {
+        setIsDragging(true);
+    }
+  }, [isLoading, isUploading]);
+
+  const onDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      handleFileUpload(file);
+      e.dataTransfer.clearData();
+    }
+  }, [user?.id]); 
 
   const fetchChatHistory = useCallback(async (userUID) => {
     if (!userUID) {
@@ -111,8 +228,6 @@ function App() {
     } finally {
       setHistoryLoading(false)
     }
-
-
   }, [])
 
   useEffect(() => {
@@ -156,12 +271,11 @@ function App() {
       alert('Please sign in to continue.')
       return
     }
-    // --- NEW LOGIC START ---
+    
     let finalQuery = input.trim();
-    if (cadContext) {
-      finalQuery = `CONTEXT FROM CAD FILE:\n${cadContext}\n\nUSER QUERY: ${finalQuery}`;
+    if (fileContext) {
+      finalQuery = `CONTEXT FROM UPLOADED FILE:\n${fileContext}\n\nUSER QUERY: ${finalQuery}`;
     }
-    // --- NEW LOGIC END ---
 
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
@@ -192,8 +306,13 @@ function App() {
       }
 
       const retrievedProblems = await retrieveResponse.json();
-      const first = retrievedProblems[0]?.problem || "";
-      const second = retrievedProblems[1]?.problem || "";
+      
+      // --- UPDATED LOGIC TO USE HELPER FUNCTION ---
+      const first = formatReference(retrievedProblems[0]);
+      const second = formatReference(retrievedProblems[1]);
+      // --------------------------------------------
+      
+      console.log("Retrieval Complete. Problem IDs:", retrievedProblems.map(p => p.id));
 
       setStreamingContent(prev => ({ ...prev, status: 'solving' }));
 
@@ -295,39 +414,55 @@ function App() {
           error: event.data.step.error || '',
         };
 
-        setStreamingContent(prev => ({
-          ...prev,
-          steps: [...prev.steps, formattedStep],
-          currentStep: null,
-          currentTokens: '',
-          status: 'waiting'
-        }));
+        setStreamingContent(prev => {
+            // Deduplicate: Don't add if this step ID already exists
+            const exists = prev.steps.some(s => s.number === formattedStep.number);
+            if (exists) {
+                return {
+                    ...prev,
+                    currentStep: null,
+                    currentTokens: '',
+                    status: 'waiting'
+                };
+            }
+            
+            return {
+                ...prev,
+                steps: [...prev.steps, formattedStep],
+                currentStep: null,
+                currentTokens: '',
+                status: 'waiting'
+            };
+        });
         break;
 
       case 'done':
-        setStreamingContent(prev => {
-          if (!prev) return null;
-          
-          const finalSteps = prev.steps;
+        const finalBackendSteps = event.data.steps || [];
+        
+        const assistantMessage = finalBackendSteps.length > 0
+          ? {
+            role: 'assistant',
+            type: 'steps',
+            title: 'Solution Steps',
+            summary: '',
+            steps: finalBackendSteps.map((step, idx) => ({
+                number: step.step_id || idx + 1,
+                title: `Step ${step.step_id || idx + 1}`,
+                description: step.description,
+                code: step.code,
+                output: step.output,
+                error: step.error
+            })),
+          }
+          : {
+            role: 'assistant',
+            type: 'text',
+            content: 'No solution steps were generated.',
+          };
 
-          const assistantMessage = finalSteps.length > 0
-            ? {
-              role: 'assistant',
-              type: 'steps',
-              title: 'Solution Steps',
-              summary: '',
-              steps: finalSteps,
-            }
-            : {
-              role: 'assistant',
-              type: 'text',
-              content: 'No solution steps were generated.',
-            };
-
-          setMessages(msgs => [...msgs, assistantMessage]);
-          return null
-          
-        });
+        setMessages(msgs => [...msgs, assistantMessage]);
+        
+        setStreamingContent(null);
         setIsLoading(false);
         break;
 
@@ -339,6 +474,7 @@ function App() {
           content: `Error: ${event.data.message}`
         };
         setMessages(prev => [...prev, errorMessage]);
+        setIsLoading(false);
         break;
 
       default:
@@ -367,6 +503,7 @@ function App() {
 
       if (response.ok) {
         setMessages([])
+        setFileContext(null)
       }
     } catch (err) {
       // Failed to clear history
@@ -482,10 +619,7 @@ function App() {
                     </div>
                     <div className="step-content">
                       {streamingContent.currentTokens && (
-                        <div className="streaming-tokens">
-                          <pre className="token-stream">{streamingContent.currentTokens}</pre>
-                          <span className="cursor">|</span>
-                        </div>
+                         <Typewriter text={streamingContent.currentTokens} isThinking={true} />
                       )}
                     </div>
                   </div>
@@ -591,17 +725,6 @@ function App() {
     <pre className="user-message-text">{text}</pre>
   )
 
-  const renderCodeBlock = (code, language = 'text') => (
-    <pre className="code-block">
-      <code className={language ? `language-${language}` : ''}>{code}</code>
-    </pre>
-  )
-
-  const renderPlainBlock = (value = '') => (
-    <pre className="plain-block">{value}</pre>
-  )
-
-  // Show loading state while checking authentication
   if (!isLoaded) {
     return (
       <div className="app">
@@ -640,7 +763,35 @@ function App() {
       </SignedOut>
 
       <SignedIn>
-        <div className="app">
+        <div 
+            className="app"
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+        >
+          {isDragging && (
+            <div className="drag-overlay" style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: '24px',
+                fontWeight: 'bold',
+                border: '4px dashed white',
+                margin: '20px',
+                borderRadius: '10px'
+            }}>
+                Drop file to upload
+            </div>
+          )}
+
           <div className="chat-container">
             <div className="chat-header">
               <h1>Chat Assistant</h1>
@@ -662,18 +813,13 @@ function App() {
                   </button>
                 </SignOutButton>
               </div>
-            {/* --- ADD THIS BLOCK --- */}
-            <div style={{ padding: '0 20px', marginBottom: '10px' }}>
-              <CadUpload onAnalysisComplete={handleCadAnalyzed} />
-            </div>
-            {/* ---------------------- */}
             </div>
 
             <div className="messages-container">
               {messages.length === 0 && !streamingContent ? (
                 <div className="empty-state">
                   <h2>Start a conversation</h2>
-                  <p>Type a message below to begin</p>
+                  <p>Type a message or drag & drop a file</p>
                 </div>
               ) : (
                 <>
@@ -684,37 +830,62 @@ function App() {
                       </div>
                     </div>
                   ))}
-                  {/* Only show streaming content if it exists, we're still loading, AND the last message isn't already the final one */}
-                  {(() => {
-                    if (!streamingContent || !isLoading) return null;
-                    
-                    const lastMessage = messages[messages.length - 1];
-                    // Check if we already have the final message to prevent duplicate rendering
-                    const hasFinalMessage = lastMessage && 
-                      lastMessage.role === 'assistant' && 
-                      lastMessage.type === 'steps' &&
-                      streamingContent.steps.length > 0 &&
-                      lastMessage.steps?.length === streamingContent.steps.length &&
-                      lastMessage.steps?.[0]?.number === streamingContent.steps[0]?.number;
-                    
-                    // Only render streaming if we don't already have the final message
-                    return hasFinalMessage ? null : renderStreamingContent();
-                  })()}
+                  
+                  {/* Only show streaming content if isLoading is true */}
+                  {isLoading && streamingContent && renderStreamingContent()}
                 </>
               )}
               <div ref={messagesEndRef} />
             </div>
 
             <div className="input-container">
-              <div className="input-wrapper">
+              <div className="input-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    style={{ display: 'none' }} 
+                    onChange={(e) => {
+                        if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+                    }}
+                />
+                <button
+                    className="upload-button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isLoading || isUploading}
+                    style={{
+                        background: 'transparent',
+                        border: '1px solid #ccc',
+                        borderRadius: '6px',
+                        width: '40px',
+                        height: '40px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: 'var(--text-color, #fff)',
+                        padding: 0
+                    }}
+                    title="Upload file"
+                >
+                    {isUploading ? (
+                        <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
+                    ) : (
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    )}
+                </button>
+
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyPress}
-                  placeholder="Type your message here..."
+                  placeholder={isUploading ? "Uploading..." : "Type your message here..."}
                   rows={1}
                   disabled={isLoading}
                   className="chat-input"
+                  style={{ flex: 1 }} 
                 />
                 <button
                   onClick={handleSend}
