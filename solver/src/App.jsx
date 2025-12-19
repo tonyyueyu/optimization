@@ -75,9 +75,10 @@ const extractCodeCells = (steps) => {
       code: step.code || '',
       output: step.output || '',
       error: step.error || '',
-      language: step.language || 'python'
+      language: step.language || 'python',
+      plots: step.plots || []
     }))
-    .filter(cell => cell.code || cell.output || cell.error)
+    .filter(cell => cell.code || cell.output || cell.error || (cell.plots && cell.plots.length > 0))
 }
 
 const truncateText = (text, maxLength = 100) => {
@@ -210,7 +211,8 @@ function App() {
               code: step.code || '',
               language: 'python',
               output: step.output || '',
-              error: step.error || ''
+              error: step.error || '',
+              plots: step.plots || []
             }))
           }
         }
@@ -412,6 +414,7 @@ function App() {
           language: 'python',
           output: event.data.step.output || '',
           error: event.data.step.error || '',
+          plots: event.data.step.plots || [],
         };
 
         setStreamingContent(prev => {
@@ -525,6 +528,21 @@ function App() {
           <div className="jupyter-cell-prompt">In [{cell.stepNumber}]:</div>
           <div className="jupyter-code-content">
             <pre className="jupyter-code"><code>{cell.code}</code></pre>
+          </div>
+        </div>
+      )}
+      {cell.plots && cell.plots.length > 0 && (
+        <div className="jupyter-plot-cell">
+          <div className="jupyter-cell-prompt">Out [{cell.stepNumber}]:</div>
+          <div className="jupyter-plot-content">
+            {cell.plots.map((plot, plotIdx) => (
+              <img
+                key={plotIdx}
+                src={`data:image/png;base64,${plot}`}
+                alt={`Plot ${plotIdx + 1} from step ${cell.stepNumber}`}
+                className="jupyter-plot-image"
+              />
+            ))}
           </div>
         </div>
       )}

@@ -334,6 +334,7 @@ async def solve(data: SolveRequest):
                     "code": step_data.get("code"),
                     "output": execution_result["output"],
                     "error": execution_result["error"],
+                    "plots": execution_result.get("plots", []),
                 }
                 step_history.append(full_step_record)
 
