@@ -180,192 +180,200 @@ async def solve(data: SolveRequest):
     user_id = data.user_id
 
     async def stream_solution():
-        step_history = []
-        if DISABLE_GEMINI:
-            print("DEBUG: Gemini generation disabled via code.")
-            
-            # Emulate a quick response so frontend finishes gracefully
-            yield send_sse_event("step_start", {
-                "step_number": 1,
-                "status": "disabled"
-            })
-            
-            yield send_sse_event("executing", {
-                "step_number": 1,
-                "code": "# Gemini generation is currently disabled for debugging.\nprint('Generation disabled')"
-            })
-
-            yield send_sse_event("done", {
-                "total_steps": 0,
-                "steps": []
-            })
-            return
-        else:
-            finished = False
-            code_output = "None (Start of problem)"
-            max_steps = 10
-            current_loop = 0
-
-            to_do = []
-            
-            model = genai.GenerativeModel(
-                model_name=CHAT_MODEL_NAME,
-                generation_config={"response_mime_type": "application/json"},
-            )
-            chat_session = model.start_chat(history=[])
-        
-            # Save user message to history
-            if user_id:
-                history_manager.save_message(user_id, {
-                    "role": "user",
-                    "content": user_query,
-                    "type": "text"
-                })
-
-            while not finished and current_loop < max_steps:
-                step_number = current_loop + 1
+        try:
+            step_history = []
+            if DISABLE_GEMINI:
+                print("DEBUG: Gemini generation disabled via code.")
                 
+                # Emulate a quick response so frontend finishes gracefully
                 yield send_sse_event("step_start", {
-                    "step_number": step_number,
-                    "status": "generating"
+                    "step_number": 1,
+                    "status": "disabled"
                 })
-
-                prompt = f"""
-                You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets. DO NOT use libraries outside of the reference examples unless ABSOLUTELY necessary!
                 
-                GOAL: Solve this problem: "{user_query}"
-                
-                REFERENCE EXAMPLES:
-                1. {problem1}
-                2. {problem2}
-
-                CURRENT STATUS:
-                History of steps taken: {json.dumps(step_history)}
-                Original to-do list (use this as reference; LLM may update this in its "to_do" output): {json.dumps(to_do)}
-                Output of the LAST executed code block: {code_output}
-
-                INSTRUCTION:
-                1. At the very first step, plan the full problem as a complete to-do list and include it in the "to_do" field.
-                2. For subsequent steps, validate the last executed step based on the code output.
-                3. Update the to-do list as needed, reflecting completed tasks or new tasks.
-                4. Generate the NEXT step. Use the description section as a scratchpad and write your reasoning verbosely before writing code.
-                5. Output strict JSON following the schema.
-                6. ONLY use the libraries that the reference example used, unless ABSOLUTELY necessary.
-                7. CLOSELY follow the reference examples in style, formatting, and approach.
-
-                JSON SCHEMA:
-                {{
-                    "step_id": integer,
-                    "description": "string",
-                    "code": "python code string",
-                    "to_do": ["string", "string", ...],
-                    "is_final_step": boolean
-                }}
-                """
-                
-                print(f"--- Gemini Generating Step {step_number} (Streaming) ---")
-                print(f"Prompt: {prompt}")
-                
-                try:
-                    response = chat_session.send_message(prompt, stream=True)
-                    accumulated_text = ""
-                    
-                    for chunk in response:
-                        if chunk.text:
-                            accumulated_text += chunk.text
-                            yield send_sse_event("token", {
-                                "step_number": step_number,
-                                "text": chunk.text,
-                                "accumulated": accumulated_text
-                            })
-                            await asyncio.sleep(0)
-                    
-                    step_data = json.loads(accumulated_text)
-                    
-                    yield send_sse_event("generation_complete", {
-                        "step_number": step_number,
-                        "step_data": step_data
-                    })
-                    
-                except json.JSONDecodeError as e:
-                    yield send_sse_event("error", {
-                        "message": f"Failed to parse AI response as JSON: {str(e)}",
-                        "raw_response": accumulated_text
-                    })
-                    return
-                except Exception as e:
-                    yield send_sse_event("error", {
-                        "message": f"Failed to generate step from AI: {str(e)}"
-                    })
-                    return
-
                 yield send_sse_event("executing", {
-                    "step_number": step_number,
-                    "code": step_data.get("code", "")
+                    "step_number": 1,
+                    "code": "# Gemini generation is currently disabled for debugging.\nprint('Generation disabled')"
                 })
 
-                print(f"Sending code to Docker: {step_data.get('code')}")
-                try:
-                    docker_response = requests.post(
-                        EXECUTOR_URL,
-                        json={"code": step_data.get("code", "")},
-                        timeout=30,
-                    )
-                    if docker_response.status_code == 200:
-                        execution_result = docker_response.json()
-                    else:
+                yield send_sse_event("done", {
+                    "total_steps": 0,
+                    "steps": []
+                })
+                return
+            else:
+                finished = False
+                code_output = "None (Start of problem)"
+                max_steps = 10
+                current_loop = 0
+
+                to_do = []
+                
+                model = genai.GenerativeModel(
+                    model_name=CHAT_MODEL_NAME,
+                    generation_config={"response_mime_type": "application/json"},
+                )
+                chat_session = model.start_chat(history=[])
+            
+                # Save user message to history
+                if user_id:
+                    history_manager.save_message(user_id, {
+                        "role": "user",
+                        "content": user_query,
+                        "type": "text"
+                    })
+
+                while not finished and current_loop < max_steps:
+                    step_number = current_loop + 1
+                    
+                    yield send_sse_event("step_start", {
+                        "step_number": step_number,
+                        "status": "generating"
+                    })
+
+                    prompt = f"""
+                    You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets. DO NOT use libraries outside of the reference examples unless ABSOLUTELY necessary!
+                    
+                    GOAL: Solve this problem: "{user_query}"
+                    
+                    REFERENCE EXAMPLES:
+                    1. {problem1}
+                    2. {problem2}
+
+                    CURRENT STATUS:
+                    History of steps taken: {json.dumps(step_history)}
+                    Original to-do list (use this as reference; LLM may update this in its "to_do" output): {json.dumps(to_do)}
+                    Output of the LAST executed code block: {code_output}
+
+                    INSTRUCTION:
+                    1. At the very first step, plan the full problem as a complete to-do list and include it in the "to_do" field.
+                    2. For subsequent steps, validate the last executed step based on the code output.
+                    3. Update the to-do list as needed, reflecting completed tasks or new tasks.
+                    4. Generate the NEXT step. Use the description section as a scratchpad and write your reasoning verbosely before writing code.
+                    5. Output strict JSON following the schema.
+                    6. ONLY use the libraries that the reference example used, unless ABSOLUTELY necessary.
+                    7. CLOSELY follow the reference examples in style, formatting, and approach.
+
+                    JSON SCHEMA:
+                    {{
+                        "step_id": integer,
+                        "description": "string",
+                        "code": "python code string",
+                        "to_do": ["string", "string", ...],
+                        "is_final_step": boolean
+                    }}
+                    """
+                    
+                    print(f"--- Gemini Generating Step {step_number} (Streaming) ---")
+                    print(f"Prompt: {prompt}")
+                    
+                    try:
+                        response = chat_session.send_message(prompt, stream=True)
+                        accumulated_text = ""
+                        
+                        for chunk in response:
+                            if chunk.text:
+                                accumulated_text += chunk.text
+                                yield send_sse_event("token", {
+                                    "step_number": step_number,
+                                    "text": chunk.text,
+                                    "accumulated": accumulated_text
+                                })
+                                await asyncio.sleep(0)
+                        
+                        step_data = json.loads(accumulated_text)
+                        
+                        yield send_sse_event("generation_complete", {
+                            "step_number": step_number,
+                            "step_data": step_data
+                        })
+                        
+                    except json.JSONDecodeError as e:
+                        yield send_sse_event("error", {
+                            "message": f"Failed to parse AI response as JSON: {str(e)}",
+                            "raw_response": accumulated_text
+                        })
+                        return
+                    except Exception as e:
+                        yield send_sse_event("error", {
+                            "message": f"Failed to generate step from AI: {str(e)}"
+                        })
+                        return
+
+                    yield send_sse_event("executing", {
+                        "step_number": step_number,
+                        "code": step_data.get("code", "")
+                    })
+
+                    print(f"Sending code to Docker: {step_data.get('code')}")
+                    try:
+                        docker_response = requests.post(
+                            EXECUTOR_URL,
+                            json={"code": step_data.get("code", "")},
+                            timeout=30,
+                        )
+                        if docker_response.status_code == 200:
+                            execution_result = docker_response.json()
+                        else:
+                            execution_result = {
+                                "output": "",
+                                "error": f"Docker API Error: {docker_response.status_code}",
+                            }
+                    except requests.exceptions.ConnectionError:
                         execution_result = {
                             "output": "",
-                            "error": f"Docker API Error: {docker_response.status_code}",
+                            "error": "Could not connect to Docker container. Is it running?",
                         }
-                except requests.exceptions.ConnectionError:
-                    execution_result = {
-                        "output": "",
-                        "error": "Could not connect to Docker container. Is it running?",
+
+                    code_output = execution_result["output"]
+                    if execution_result["error"]:
+                        code_output += f"\nERROR: {execution_result['error']}"
+
+                    full_step_record = {
+                        "step_id": step_data.get("step_id"),
+                        "description": step_data.get("description"),
+                        "code": step_data.get("code"),
+                        "output": execution_result["output"],
+                        "error": execution_result["error"],
+                        "to_do": step_data.get("to_do", []),
+                        "is_final_step": step_data.get("is_final_step", False),
                     }
+                    step_history.append(full_step_record)
 
-                code_output = execution_result["output"]
-                if execution_result["error"]:
-                    code_output += f"\nERROR: {execution_result['error']}"
+                    to_do = step_data.get("to_do", to_do) 
+                    print(to_do)
 
-                full_step_record = {
-                    "step_id": step_data.get("step_id"),
-                    "description": step_data.get("description"),
-                    "code": step_data.get("code"),
-                    "output": execution_result["output"],
-                    "error": execution_result["error"],
-                    "plots": execution_result.get("plots", []),
-                }
-                step_history.append(full_step_record)
+                    yield send_sse_event("step_complete", {
+                        "step": full_step_record,
+                        "step_number": step_number
+                    })
 
-                to_do = step_data.get("to_do", to_do) 
-                print(to_do)
+                    if step_data.get("is_final_step", False):
+                        finished = True
 
-                yield send_sse_event("step_complete", {
-                    "step": full_step_record,
-                    "step_number": step_number
-                })
+                    current_loop += 1
 
-                if step_data.get("is_final_step", False):
-                    finished = True
+                # Save assistant response to history
+                if user_id and step_history:
+                    assistant_message = {
+                        "role": "assistant",
+                        "type": "steps",
+                        "title": "Solution Steps",
+                        "summary": "",
+                        "steps": step_history
+                    }
+                    history_manager.save_message(user_id, assistant_message)
 
-                current_loop += 1
-
-            # Save assistant response to history
-            if user_id and step_history:
-                assistant_message = {
-                    "role": "assistant",
-                    "type": "steps",
-                    "title": "Solution Steps",
-                    "summary": "",
+                yield send_sse_event("done", {
+                    "total_steps": len(step_history),
                     "steps": step_history
-                }
-                history_manager.save_message(user_id, assistant_message)
-
-            yield send_sse_event("done", {
-                "total_steps": len(step_history),
-                "steps": step_history
+                })
+        except Exception as global_error:
+            print(f"CRITICAL STREAM ERROR: {global_error}")
+            yield send_sse_event("error", {
+                "message": f"Server processing failed: {str(global_error)}"
             })
+            return
 
     return StreamingResponse(
         stream_solution(),
