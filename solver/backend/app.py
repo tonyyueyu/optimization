@@ -253,6 +253,7 @@ async def solve(data: SolveRequest):
                     5. Output strict JSON following the schema.
                     6. ONLY use the libraries that the reference example used, unless ABSOLUTELY necessary.
                     7. CLOSELY follow the reference examples in style, formatting, and approach.
+                    8. After obtaining the final answer, create an extra step and provide a very brief summary step (1 sentence only) that explains the solution and final answer in clear, concise words. The "description" field should briefly summarize the solution and final answer. The "code" field for the final step should be empty - the focus should be on the textual summary in the "description" field.
 
                     JSON SCHEMA:
                     {{

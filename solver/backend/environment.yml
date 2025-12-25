@@ -26,9 +26,16 @@ dependencies:
   - pyomo
 
   # --- CAD Geometry ---
-  - cadquery=2.6
+  # Note: cadquery and cadquery-ocp are installed in Dockerfile in a specific order:
+  # 1. cadquery-ocp from conda-forge
+  # 2. ezdxf via pip (not available in conda-forge)
+  # 3. cadquery from conda-forge with --no-deps
+  # - cadquery=2.6
+  # - cadquery-ocp
 
   # --- Binary Solvers ---
   - ipopt
   - highs
   - glpk
+  - pip:
+    - highspy  # Python interface for HiGHS solver (required by Pyomo)

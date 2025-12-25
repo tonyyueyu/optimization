@@ -37,7 +37,7 @@ const formatReference = (data) => {
 const Typewriter = ({ text, isThinking = false }) => {
   const [displayedText, setDisplayedText] = useState('')
   const targetTextRef = useRef(text)
-  const speed = 15 // ms per character
+  const speed = 5 // ms per character
 
   useEffect(() => {
     targetTextRef.current = text
