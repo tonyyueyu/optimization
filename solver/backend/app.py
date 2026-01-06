@@ -210,7 +210,9 @@ async def solve(data: SolveRequest):
             
             model = genai.GenerativeModel(
                 model_name=CHAT_MODEL_NAME,
-                generation_config={"response_mime_type": "application/json"},
+                generation_config={"response_mime_type": "application/json",
+                    "max_output_tokens": 8192, # <--- prevent cut-off errors
+                    "temperature": 0.1},
             )
             chat_session = model.start_chat(history=[])
         
@@ -251,9 +253,14 @@ async def solve(data: SolveRequest):
                 4. Generate the NEXT step. Use the description section as a scratchpad and write your reasoning verbosely before writing code.
                 5. Output strict JSON following the schema.
                 6. ONLY use the libraries that the reference example used, unless ABSOLUTELY necessary.
-                7. CLOSELY follow the reference examples in style, formatting, and approach.
-
-                JSON SCHEMA:
+                7. CLOSELY follow the reference examples in style, formatting, and approach.\
+                8. After obtaining the final answer, you must generate a final step
+                9. FINAL STEP INSTRUCTIONS:
+                   - You MUST generate one final step to present the solution.
+                   - Set "is_final_step": true.
+                   - Put the text summary of the answer in "description".
+                   - Set "code": "" (EMPTY STRING). Do not write code in the final step.
+                   - Keep the exact same JSON structure as previous steps.
                 {{
                     "step_id": integer,
                     "description": "string",
@@ -271,14 +278,19 @@ async def solve(data: SolveRequest):
                     accumulated_text = ""
                     
                     for chunk in response:
-                        if chunk.text:
-                            accumulated_text += chunk.text
-                            yield send_sse_event("token", {
-                                "step_number": step_number,
-                                "text": chunk.text,
-                                "accumulated": accumulated_text
-                            })
-                            await asyncio.sleep(0)
+                        # Check if the chunk actually contains text parts to avoid "Invalid operation"
+                        if chunk.candidates and chunk.candidates[0].content.parts:
+                            # Now it is safe to access chunk.text
+                            text_content = chunk.text 
+                            
+                            if text_content:
+                                accumulated_text += text_content
+                                yield send_sse_event("token", {
+                                    "step_number": step_number,
+                                    "text": text_content,
+                                    "accumulated": accumulated_text
+                                })
+                                await asyncio.sleep(0)
                     
                     step_data = json.loads(accumulated_text)
                     
@@ -304,24 +316,31 @@ async def solve(data: SolveRequest):
                     "code": step_data.get("code", "")
                 })
 
-                print(f"Sending code to Docker: {step_data.get('code')}")
-                try:
-                    docker_response = requests.post(
-                        EXECUTOR_URL,
-                        json={"code": step_data.get("code", "")},
-                        timeout=30,
-                    )
-                    if docker_response.status_code == 200:
-                        execution_result = docker_response.json()
-                    else:
+                if step_data.get("code"):
+                    print(f"Sending code to Docker: {step_data.get('code')}")
+                    try:
+                        docker_response = requests.post(
+                            EXECUTOR_URL,
+                            json={"code": step_data.get("code", "")},
+                            timeout=30,
+                        )
+                        if docker_response.status_code == 200:
+                            execution_result = docker_response.json()
+                        else:
+                            execution_result = {
+                                "output": "",
+                                "error": f"Docker API Error: {docker_response.status_code}",
+                            }
+                    except requests.exceptions.ConnectionError:
                         execution_result = {
                             "output": "",
-                            "error": f"Docker API Error: {docker_response.status_code}",
+                            "error": "Could not connect to Docker container. Is it running?",
                         }
-                except requests.exceptions.ConnectionError:
+                else:
                     execution_result = {
-                        "output": "",
-                        "error": "Could not connect to Docker container. Is it running?",
+                        "output": "", # Empty output for summary
+                        "error": "",
+                        "plots": []
                     }
 
                 code_output = execution_result["output"]

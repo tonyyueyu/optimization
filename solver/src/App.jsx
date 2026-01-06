@@ -37,7 +37,7 @@ const formatReference = (data) => {
 const Typewriter = ({ text, isThinking = false }) => {
   const [displayedText, setDisplayedText] = useState('')
   const targetTextRef = useRef(text)
-  const speed = 15 // ms per character
+  const speed = 5 // ms per character
 
   useEffect(() => {
     targetTextRef.current = text
@@ -695,20 +695,40 @@ function App() {
           </div>
 
           <div className="steps-list">
-            {message.steps.map((step) => (
-              <div key={step.number} className="step-container">
-                <div className="step-header">
-                  <span className="step-number">{step.number}</span>
-                  <span className="step-title">{step.title}</span>
+            {message.steps.map((step, index) => {
+              // Check if this is the final summary step (last index + no code)
+              const isFinalSummary = index === message.steps.length - 1 && !step.code;
+
+              return (
+                <div 
+                  key={step.number} 
+                  className="step-container"
+                  // Add green border and slight background tint for final step
+                  style={isFinalSummary ? { borderLeft: '4px solid #22c55e', backgroundColor: 'rgba(34, 197, 94, 0.05)' } : {}}
+                >
+                  <div className="step-header">
+                    <span className="step-number">{step.number}</span>
+                    <span className="step-title">
+                      {isFinalSummary ? 'Final Solution' : step.title}
+                    </span>
+                    {isFinalSummary && <span style={{ marginLeft: '8px' }}>🎉</span>}
+                  </div>
+                  <div className="step-content">
+                    {step.description && (
+                      <p 
+                        className="step-text"
+                        // UPDATED COLOR HERE to light green
+                        style={isFinalSummary ? { fontWeight: '600', color: '#22c55e', fontSize: '1.05em' } : {}}
+                      >
+                        {step.description}
+                      </p>
+                    )}
+                    {/* Only render output preview if it is NOT the final text-only summary */}
+                    {!isFinalSummary && renderStepPreview(step)}
+                  </div>
                 </div>
-                <div className="step-content">
-                  {step.description && (
-                    <p className="step-text">{step.description}</p>
-                  )}
-                  {renderStepPreview(step)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
