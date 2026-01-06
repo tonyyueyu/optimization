@@ -13,6 +13,8 @@ from pinecone import Pinecone
 import google.generativeai as genai
 from history_manager import HistoryManager
 import asyncio
+import json_repair
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # -- CONFIGURATION --
 load_dotenv()
@@ -207,9 +209,19 @@ async def solve(data: SolveRequest):
             current_loop = 0
 
             to_do = []
+
+            # 1. Define Safety Settings to allow "Harm" (damaged cars) and "Hate" (false positives)
+
+            safety_settings = {
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
             
             model = genai.GenerativeModel(
                 model_name=CHAT_MODEL_NAME,
+                safety_settings=safety_settings,
                 generation_config={"response_mime_type": "application/json",
                     "max_output_tokens": 8192, # <--- prevent cut-off errors
                     "temperature": 0.1},
@@ -233,7 +245,15 @@ async def solve(data: SolveRequest):
                 })
 
                 prompt = f"""
-                You are a Math Optimization Code Solver. Follow the reference examples to solve the user's problem step-by-step by generating Python code snippets. DO NOT use libraries outside of the reference examples unless ABSOLUTELY necessary!
+                You are a Math Optimization Code Solver. 
+                
+                ROLE & STRATEGY:
+                1. **SYNTAX (Copy this):** Use the REFERENCE EXAMPLES to determine which libraries to use (e.g., Pyomo vs SciPy), how to define variables, and the general code structure.
+                2. **LOGIC (Derive this):** Derive the Objective Function, Constraints, and Data Values STRICTLY from the USER QUERY.
+                
+                CRITICAL WARNINGS:
+                - **Do NOT copy constraints** from the Reference Examples unless they are explicitly stated in the User Query. (e.g., If the Reference has a "Price Index" constraint but the User Query does not, DO NOT include it).
+                - **Unit Check:** Analyze the units in the User Query (e.g., "1000 tons") versus the Reference (e.g., "Million tons"). Scale inputs if necessary to ensure numerical stability (target values between 0.1 and 100).
                 
                 GOAL: Solve this problem: "{user_query}"
                 
@@ -243,42 +263,50 @@ async def solve(data: SolveRequest):
 
                 CURRENT STATUS:
                 History of steps taken: {json.dumps(step_history)}
-                Original to-do list (use this as reference; LLM may update this in its "to_do" output): {json.dumps(to_do)}
+                Original to-do list: {json.dumps(to_do)}
                 Output of the LAST executed code block: {code_output}
 
                 INSTRUCTION:
-                1. At the very first step, plan the full problem as a complete to-do list and include it in the "to_do" field.
-                2. For subsequent steps, validate the last executed step based on the code output.
-                3. Update the to-do list as needed, reflecting completed tasks or new tasks.
-                4. Generate the NEXT step. Use the description section as a scratchpad and write your reasoning verbosely before writing code.
-                5. Output strict JSON following the schema.
-                6. ONLY use the libraries that the reference example used, unless ABSOLUTELY necessary.
-                7. CLOSELY follow the reference examples in style, formatting, and approach.\
-                8. After obtaining the final answer, you must generate a final step
-                9. FINAL STEP INSTRUCTIONS:
+                1. **Step 1 Requirement:** Your first step MUST be "Problem Analysis & Data Setup". Before writing code, explicitly PARAPHRASE the constraints you found in the *User Query* text in the description.
+                2. For subsequent steps, validate the last executed step.
+                3. Update the to-do list.
+                4. Generate the NEXT step.
+                5. Output strict JSON.
+                6. After obtaining the final answer, create an extra step for the summary.
+                7. FINAL STEP INSTRUCTIONS:
                    - You MUST generate one final step to present the solution.
                    - Set "is_final_step": true.
                    - Put the text summary of the answer in "description".
+                   - IMPORTANT: Keep the description CONCISE. State the final numbers/recommendations directly. Do not recap the methodology.
                    - Set "code": "" (EMPTY STRING). Do not write code in the final step.
                    - Keep the exact same JSON structure as previous steps.
+                JSON SCHEMA:
                 {{
                     "step_id": integer,
-                    "description": "string",
+                    "description": "string(MUST escape internal double quotes, e.g. \\\"text\\\")",
                     "code": "python code string",
                     "to_do": ["string", "string", ...],
                     "is_final_step": boolean
                 }}
+                **CRITICAL FORMATTING RULE:** Do not output Markdown formatting (like ```json). Output RAW JSON only. 
+                If you need to use a double quote " inside a description or code block, you MUST escape it like this: \"
                 """
                 
                 print(f"--- Gemini Generating Step {step_number} (Streaming) ---")
                 print(f"Prompt: {prompt}")
+
+                yield send_sse_event("step_start", {
+                    "step_number": step_number,
+                    "status": "waiting_for_model" # You can handle this status in frontend logic
+                })
                 
                 try:
-                    response = chat_session.send_message(prompt, stream=True)
+                    response = await chat_session.send_message_async(prompt, stream=True) 
+
                     accumulated_text = ""
                     
-                    for chunk in response:
-                        # Check if the chunk actually contains text parts to avoid "Invalid operation"
+                    # 2. Iterate using 'async for'
+                    async for chunk in response:
                         if chunk.candidates and chunk.candidates[0].content.parts:
                             # Now it is safe to access chunk.text
                             text_content = chunk.text 
@@ -292,7 +320,7 @@ async def solve(data: SolveRequest):
                                 })
                                 await asyncio.sleep(0)
                     
-                    step_data = json.loads(accumulated_text)
+                    step_data = json_repair.loads(accumulated_text)
                     
                     yield send_sse_event("generation_complete", {
                         "step_number": step_number,
