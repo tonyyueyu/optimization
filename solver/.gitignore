@@ -14,6 +14,19 @@ dist-ssr
 
 # Editor directories and files
 .vscode/*
+# Ignore VS Code settings and workspace data
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Specifically ignore the C++ browse databases you're seeing
+*.vc.db
+*.vc.db-shm
+*.vc.db-wal
+__pycache__/
+*.py[cod]
 !.vscode/extensions.json
 .idea
 .DS_Store

@@ -5,18 +5,15 @@ FROM mambaorg/micromamba:latest
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yml
 
 # 2. Install dependencies
-# This creates a new environment based on your yaml file and cleans up cache
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
 
-# 3. ACTIVATE the environment
-# This is crucial: it adds 'ipopt', 'glpsol', and 'highs' to the system PATH
+# 3. ACTIVATE the environment for BUILD steps (like ipykernel install)
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 
 WORKDIR /app
 
 # 4. Register the kernel
-# We install the kernel spec so jupyter_client can find "math_opt_kernel"
 RUN python -m ipykernel install --user --name=math_opt_kernel
 
 # 5. Copy your backend code
@@ -25,5 +22,12 @@ COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 # 6. Expose the executor port
 EXPOSE 8000
 
+# --- THE FIX IS HERE ---
+# Explicitly force the environment bin folder into the PATH.
+# In the micromamba image, the base env is usually at /opt/conda.
+# We use the $MAMBA_ROOT_PREFIX variable provided by the base image.
+ENV PATH="$MAMBA_ROOT_PREFIX/bin:$PATH"
+
 # 7. Start the executor
+# Now 'python' and 'highs' will be found automatically.
 CMD ["python", "executor.py"]

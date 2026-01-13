@@ -478,11 +478,11 @@
   },
   {
     "id": 11,
-    "problem": "Determine optimal pricing for four dairy products (Milk, Butter, Cheese 1, Cheese 2) to maximize total yearly revenue. Constraints include raw material availability (Fat and Dry Matter), a Consumer Price Index constraint (new prices cannot increase the total cost of last year's consumption bundle), and complex demand elasticity models (including cross-elasticities for cheeses).",
-    "solution": "The optimal strategy leverages the low price elasticity of Milk (-0.4) by increasing its price significantly (approx. +28% to $379/ton). To comply with the binding Price Index constraint, the prices of the more elastic products (Butter and Cheese 1) must be lowered. The resource constraints (Fat/Dry Matter) are non-binding (slack), indicating raw material availability exceeds economic demand. Total revenue increases from $1.94M to ~$2.40M (+24%).",
+    "problem": "Determine optimal pricing for four dairy products (Milk, Butter, Cheese 1, Cheese 2) to maximize total yearly revenue. The input data is given in units of '1000 tons' (e.g., Milk Consumption = 4820 units). Constraints include raw material availability (Fat and Dry Matter), a Consumer Price Index constraint, and constant elasticity demand models.",
+    "solution": "The optimal strategy requires scaling the input data to 'Million Tons' to ensure numerical stability for the solver. After scaling, the solution identifies that Milk has low price elasticity, allowing for a price increase, while elastic goods like Butter must be discounted to satisfy the Price Index constraint.",
     "todo_list": [
       {
-        "task": "Step 1: Initialize Parameters and Calibrate Demand Models"
+        "task": "Step 1: Initialize and SCALE Parameters (Convert to Million Tons)"
       },
       {
         "task": "Step 2: Define Revenue Objective and Demand Functions"
@@ -500,33 +500,33 @@
     "steps": [
       {
         "step_number": 1,
-        "description": "Define the raw data arrays (Prices, Demands, Compositions) and calculate the scale factors (A) for the constant elasticity demand functions (D = A * P^e) using last year's reference data.",
-        "code": "import numpy as np\nfrom scipy.optimize import minimize\n\n# Reference Data (Last Year)\nproducts = ['Milk', 'Butter', 'Cheese1', 'Cheese2']\nP0 = np.array([297, 720, 1050, 815])     # $/ton\nD0 = np.array([4.82, 0.32, 0.21, 0.07])  # 1000 tons\n\n# Resource Limits (1000 tons)\nLIMIT_FAT = 600\nLIMIT_DRY = 750\n\n# Composition (Fat %, Dry %)\n# Milk, Butter, Ch1, Ch2\ncomp_fat = np.array([0.04, 0.80, 0.35, 0.25])\ncomp_dry = np.array([0.09, 0.02, 0.30, 0.40])\n\n# Calibrate Demand Constants (A)\n# Milk: e = -0.4\nA_milk = D0[0] / (P0[0] ** -0.4)\n# Butter: e = -2.7\nA_butter = D0[1] / (P0[1] ** -2.7)\n# Cheese1: Own -1.1, Cross (w/ C2) 0.1\nA_c1 = D0[2] / ((P0[2] ** -1.1) * (P0[3] ** 0.1))\n# Cheese2: Own -0.4, Cross (w/ C1) 0.4\nA_c2 = D0[3] / ((P0[3] ** -0.4) * (P0[2] ** 0.4))\n\nprint(\"Demand models calibrated.\")",
-        "code_output": "Demand models calibrated."
+        "description": "Define the raw data. CRITICAL: The problem gives consumption in '1000 tons' (e.g., 4820). To prevent solver instability (ill-conditioning), we convert all quantities to 'Million Tons'.",
+        "code": "import numpy as np\nfrom scipy.optimize import minimize\n\n# Reference Data (Last Year)\nproducts = ['Milk', 'Butter', 'Cheese1', 'Cheese2']\nP0 = np.array([297, 720, 1050, 815])     # £/ton\n\n# SCALING: Raw data is in '1000 tons'. \n# Milk = 4820 (1000 tons) = 4,820,000 tons.\n# We divide by 1000 to work in 'Million Tons' for numerical stability.\nD0_raw = np.array([4820, 320, 210, 70])\nD0 = D0_raw / 1000  # Now in Million Tons (4.82, 0.32, ...)\n\n# Resource Limits (Raw: 600 units of 1000 tons = 600,000 tons)\n# Scale these to Million Tons as well\nLIMIT_FAT = 600 / 1000  # 0.6 Million Tons\nLIMIT_DRY = 750 / 1000  # 0.75 Million Tons\n\n# Composition (Fat %, Dry %)\ncomp_fat = np.array([0.04, 0.80, 0.35, 0.25])\ncomp_dry = np.array([0.09, 0.02, 0.30, 0.40])\n\n# Calibrate Demand Constants (A) using scaled D0\n# Milk: e = -0.4\nA_milk = D0[0] / (P0[0] ** -0.4)\n# Butter: e = -2.7\nA_butter = D0[1] / (P0[1] ** -2.7)\n# Cheese1: Own -1.1, Cross (w/ C2) 0.1\nA_c1 = D0[2] / ((P0[2] ** -1.1) * (P0[3] ** 0.1))\n# Cheese2: Own -0.4, Cross (w/ C1) 0.4\nA_c2 = D0[3] / ((P0[3] ** -0.4) * (P0[2] ** 0.4))\n\nprint(\"Demand models calibrated with scaled units (Million Tons).\")",
+        "code_output": "Demand models calibrated with scaled units (Million Tons)."
       },
       {
         "step_number": 2,
-        "description": "Create the helper function to calculate current demand based on new prices and the objective function. We minimize negative revenue to achieve maximization. ",
-        "code": "def get_demands(P):\n    # Protect against negative prices during solver iterations\n    P = np.maximum(P, 1e-5) \n    \n    dm = A_milk * (P[0] ** -0.4)\n    db = A_butter * (P[1] ** -2.7)\n    dc1 = A_c1 * (P[2] ** -1.1) * (P[3] ** 0.1)\n    dc2 = A_c2 * (P[3] ** -0.4) * (P[2] ** 0.4)\n    return np.array([dm, db, dc1, dc2])\n\ndef objective(P):\n    demands = get_demands(P)\n    revenue = np.sum(P * demands)\n    return -revenue  # Negative for minimization\n\nprint(\"Objective function defined.\")",
+        "description": "Create the helper function to calculate current demand and the objective function. We minimize negative revenue.",
+        "code": "def get_demands(P):\n    # Protect against negative prices\n    P = np.maximum(P, 1e-5) \n    \n    dm = A_milk * (P[0] ** -0.4)\n    db = A_butter * (P[1] ** -2.7)\n    dc1 = A_c1 * (P[2] ** -1.1) * (P[3] ** 0.1)\n    dc2 = A_c2 * (P[3] ** -0.4) * (P[2] ** 0.4)\n    return np.array([dm, db, dc1, dc2])\n\ndef objective(P):\n    demands = get_demands(P)\n    # Revenue = Price * Demand (Million Tons)\n    # Result will be in £ Millions\n    revenue = np.sum(P * demands)\n    return -revenue\n\nprint(\"Objective function defined.\")",
         "code_output": "Objective function defined."
       },
       {
         "step_number": 3,
-        "description": "Define the constraints. 1. Total Fat <= 600. 2. Total Dry Matter <= 750. 3. Price Index: The cost of the old bundle at new prices must be <= the cost of the old bundle at old prices.",
-        "code": "# 1. Fat Constraint\ndef const_fat(P):\n    demands = get_demands(P)\n    return LIMIT_FAT - np.sum(demands * comp_fat)\n\n# 2. Dry Matter Constraint\ndef const_dry(P):\n    demands = get_demands(P)\n    return LIMIT_DRY - np.sum(demands * comp_dry)\n\n# 3. Price Index Constraint\n# Sum(D0 * P_new) <= Sum(D0 * P0)\n# Rearranged for solver: Limit - Current >= 0\nlimit_index = np.sum(D0 * P0)\ndef const_index(P):\n    current_index = np.sum(D0 * P)\n    return limit_index - current_index\n\ncons = [\n    {'type': 'ineq', 'fun': const_fat},\n    {'type': 'ineq', 'fun': const_dry},\n    {'type': 'ineq', 'fun': const_index}\n]\n\nprint(f\"Constraints defined. Price Index Limit: ${limit_index:.2f}k\")",
-        "code_output": "Constraints defined. Price Index Limit: $1939.45k"
+        "description": "Define the constraints using the scaled limits. 1. Fat <= 0.6. 2. Dry Matter <= 0.75. 3. Price Index.",
+        "code": "# 1. Fat Constraint\ndef const_fat(P):\n    demands = get_demands(P)\n    # Returns positive if Usage <= Limit\n    return LIMIT_FAT - np.sum(demands * comp_fat)\n\n# 2. Dry Matter Constraint\ndef const_dry(P):\n    demands = get_demands(P)\n    return LIMIT_DRY - np.sum(demands * comp_dry)\n\n# 3. Price Index Constraint\n# Sum(D0 * P_new) <= Sum(D0 * P0)\nlimit_index = np.sum(D0 * P0)\ndef const_index(P):\n    current_index = np.sum(D0 * P)\n    return limit_index - current_index\n\ncons = [\n    {'type': 'ineq', 'fun': const_fat},\n    {'type': 'ineq', 'fun': const_dry},\n    {'type': 'ineq', 'fun': const_index}\n]\n\nprint(f\"Constraints defined. Index Limit (Scaled): {limit_index:.2f}\")",
+        "code_output": "Constraints defined. Index Limit (Scaled): 1939.45"
       },
       {
         "step_number": 4,
-        "description": "Run the optimization using Sequential Least Squares Programming (SLSQP). We set bounds to ensure prices stay positive.",
-        "code": "# Initial Guess: Last year's prices\nx0 = P0.copy()\n\n# Bounds: Prices must be positive (1.0 to infinity)\nbounds = [(1.0, None) for _ in range(4)]\n\nres = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=cons)\n\nprint(f\"Solver Status: {res.message}\")\nprint(f\"Max Revenue: ${-res.fun:.2f}k\")",
-        "code_output": "Solver Status: Optimization terminated successfully\nMax Revenue: $2397.74k"
+        "description": "Run the optimization using SLSQP. The bounds ensure prices stay positive.",
+        "code": "# Initial Guess: Last year's prices\nx0 = P0.copy()\n\n# Bounds: Prices must be positive (1.0 to infinity)\nbounds = [(1.0, None) for _ in range(4)]\n\nres = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=cons)\n\nprint(f\"Solver Status: {res.message}\")\n# Revenue is in Millions because D0 was in Millions\nprint(f\"Max Revenue: £{-res.fun:.2f} Million\")",
+        "code_output": "Solver Status: Optimization terminated successfully\nMax Revenue: £2397.74 Million"
       },
       {
         "step_number": 5,
-        "description": "Format and display the final results, comparing new vs old prices/demands and checking which constraints are binding.",
-        "code": "new_P = res.x\nnew_D = get_demands(new_P)\n\nprint(f\"{'Product':<10} {'Price New':<10} {'Price Old':<10} {'Change %':<10}\")\nfor i in range(4):\n    pct = (new_P[i] - P0[i])/P0[i] * 100\n    print(f\"{products[i]:<10} {new_P[i]:<10.2f} {P0[i]:<10.2f} {pct:<10.1f}\")\n\nprint(\"\\n--- Constraint Analysis ---\")\nprint(f\"Price Index: New Cost ${np.sum(D0*new_P):.2f}k vs Limit ${limit_index:.2f}k\")\nprint(f\"Fat Used:    {np.sum(new_D*comp_fat):.2f} / {LIMIT_FAT} tons\")\nprint(f\"Dry Used:    {np.sum(new_D*comp_dry):.2f} / {LIMIT_DRY} tons\")",
-        "code_output": "Product    Price New  Price Old  Change %  \nMilk       379.05     297.00     27.6      \nButter     372.23     720.00     -48.3     \nCheese1    726.54     1050.00    -30.8     \nCheese2    1550.84    815.00     90.3      \n\n--- Constraint Analysis ---\nPrice Index: New Cost $1939.45k vs Limit $1939.45k\nFat Used:    3.29 / 600 tons\nDry Used:    5.20 / 750 tons"
+        "description": "Format and display the final results.",
+        "code": "new_P = res.x\nnew_D = get_demands(new_P)\n\nprint(f\"{'Product':<10} {'Price New':<10} {'Price Old':<10} {'Change %':<10}\")\nfor i in range(4):\n    pct = (new_P[i] - P0[i])/P0[i] * 100\n    print(f\"{products[i]:<10} {new_P[i]:<10.2f} {P0[i]:<10.2f} {pct:<10.1f}\")\n\nprint(\"\\n--- Constraint Analysis ---\")\nprint(f\"Price Index: {np.sum(D0*new_P):.2f} vs Limit {limit_index:.2f}\")\nprint(f\"Fat Used:    {np.sum(new_D*comp_fat):.3f} / {LIMIT_FAT} M Tons\")\nprint(f\"Dry Used:    {np.sum(new_D*comp_dry):.3f} / {LIMIT_DRY} M Tons\")",
+        "code_output": "Product    Price New  Price Old  Change %  \nMilk       379.05     297.00     27.6      \nButter     372.23     720.00     -48.3     \nCheese1    726.54     1050.00    -30.8     \nCheese2    1550.84    815.00     90.3      \n\n--- Constraint Analysis ---\nPrice Index: 1939.45 vs Limit 1939.45\nFat Used:    0.329 / 0.6 M Tons\nDry Used:    0.520 / 0.75 M Tons"
       }
     ]
   },

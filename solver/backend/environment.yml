@@ -31,4 +31,5 @@ dependencies:
   # --- Binary Solvers ---
   - ipopt
   - highs
+  - highspy
   - glpk

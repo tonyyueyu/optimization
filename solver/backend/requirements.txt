@@ -10,3 +10,4 @@ python-dotenv
 redis
 pydantic
 python-multipart
+json_repair

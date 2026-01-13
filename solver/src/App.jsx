@@ -11,7 +11,7 @@ import {
 
 const API_BASE = 'http://localhost:5001/api'
 
-// --- NEW HELPER: Formats the retrieved JSON into a detailed string for the AI ---
+// --- HELPER: Formats the retrieved JSON ---
 const formatReference = (data) => {
   if (!data) return "";
   
@@ -31,13 +31,12 @@ const formatReference = (data) => {
   
   return formatted;
 };
-// --------------------------------------------------------------------------------
 
-// --- NEW TYPEWRITER COMPONENT ---
+// --- TYPEWRITER COMPONENT ---
 const Typewriter = ({ text, isThinking = false }) => {
   const [displayedText, setDisplayedText] = useState('')
   const targetTextRef = useRef(text)
-  const speed = 5 // ms per character
+  const speed = 2 
 
   useEffect(() => {
     targetTextRef.current = text
@@ -66,7 +65,6 @@ const Typewriter = ({ text, isThinking = false }) => {
     </pre>
   )
 }
-// --------------------------------
 
 const extractCodeCells = (steps) => {
   return steps
@@ -101,10 +99,52 @@ function App() {
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const fileInputRef = useRef(null)
+  
+  // Ref for the auto-growing textarea
+  const textareaRef = useRef(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  // --- REFS FOR INTERNAL SCROLLING ---
+  const streamingStepsRef = useRef(null);
+  const streamingCodeRef = useRef(null);
+
+  // --- AUTO-SCROLL LOGIC ---
+  
+  // 1. Scroll main chat window (Smooth) on new completed messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: "end" })
+  }, [messages])
+
+  // 2. Scroll main chat window INSTANTLY during streaming (prevents lag)
+  useEffect(() => {
+    if (streamingContent) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: "end" })
+    }
+  }, [streamingContent])
+
+  // 3. INTERNAL AUTO-SCROLL: Scroll step list and code block to bottom while streaming
+  useEffect(() => {
+    if (streamingContent) {
+        // requestAnimationFrame waits for the DOM to paint the new height before scrolling
+        requestAnimationFrame(() => {
+            if (streamingStepsRef.current) {
+                streamingStepsRef.current.scrollTop = streamingStepsRef.current.scrollHeight;
+            }
+            if (streamingCodeRef.current) {
+                streamingCodeRef.current.scrollTop = streamingCodeRef.current.scrollHeight;
+            }
+        });
+    }
+  }, [streamingContent]); 
+  // ----------------------------------
+
+  // --- AUTO-GROW TEXTAREA LOGIC ---
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [input]);
+  // --------------------------------
 
   const handleFileUpload = async (file) => {
     if (!file || !user?.id) return;
@@ -240,9 +280,6 @@ function App() {
     }
   }, [fetchChatHistory, isSignedIn, user?.id])
 
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages, streamingContent])
 
   const parseSSE = (text) => {
     const events = []
@@ -282,6 +319,10 @@ function App() {
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    
+    // Reset textarea height manually after sending
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
     setIsLoading(true);
 
     setStreamingContent({
@@ -308,11 +349,8 @@ function App() {
       }
 
       const retrievedProblems = await retrieveResponse.json();
-      
-      // --- UPDATED LOGIC TO USE HELPER FUNCTION ---
       const first = formatReference(retrievedProblems[0]);
       const second = formatReference(retrievedProblems[1]);
-      // --------------------------------------------
       
       console.log("Retrieval Complete. Problem IDs:", retrievedProblems.map(p => p.id));
 
@@ -418,7 +456,6 @@ function App() {
         };
 
         setStreamingContent(prev => {
-            // Deduplicate: Don't add if this step ID already exists
             const exists = prev.steps.some(s => s.number === formattedStep.number);
             if (exists) {
                 return {
@@ -464,7 +501,6 @@ function App() {
           };
 
         setMessages(msgs => [...msgs, assistantMessage]);
-        
         setStreamingContent(null);
         setIsLoading(false);
         break;
@@ -520,7 +556,6 @@ function App() {
     }
   }
 
-  // Render a single Jupyter cell
   const renderJupyterCell = (cell, idx) => (
     <div key={idx} className="jupyter-cell">
       {cell.code && (
@@ -565,7 +600,6 @@ function App() {
     </div>
   )
 
-  // Render step preview (output/error)
   const renderStepPreview = (step) => (
     <>
       {step.output && (
@@ -607,8 +641,13 @@ function App() {
                 </div>
               </div>
 
-              <div className="steps-list">
-                {/* Completed steps */}
+              {/* ATTACHED REF TO STEPS LIST FOR AUTO-SCROLL */}
+              {/* ADDED INLINE STYLES TO GUARANTEE SCROLLABILITY */}
+              <div 
+                className="steps-list" 
+                ref={streamingStepsRef}
+                style={{ maxHeight: '600px', overflowY: 'auto' }}
+              >
                 {streamingContent.steps.map((step) => (
                   <div key={step.number} className="step-container">
                     <div className="step-header">
@@ -625,7 +664,6 @@ function App() {
                   </div>
                 ))}
 
-                {/* Currently streaming step */}
                 {streamingContent.currentStep && (
                   <div className="step-container streaming-step">
                     <div className="step-header">
@@ -652,7 +690,13 @@ function App() {
                   <span>Code & Output</span>
                 </div>
               </div>
-               <div className="jupyter-notebook">
+               {/* ATTACHED REF TO NOTEBOOK FOR AUTO-SCROLL */}
+               {/* ADDED INLINE STYLES TO GUARANTEE SCROLLABILITY */}
+               <div 
+                 className="jupyter-notebook" 
+                 ref={streamingCodeRef}
+                 style={{ maxHeight: '600px', overflowY: 'auto' }}
+               >
                  {codeCells.length > 0 ? (
                    codeCells.map(renderJupyterCell)
                  ) : (
@@ -696,14 +740,12 @@ function App() {
 
           <div className="steps-list">
             {message.steps.map((step, index) => {
-              // Check if this is the final summary step (last index + no code)
               const isFinalSummary = index === message.steps.length - 1 && !step.code;
 
               return (
                 <div 
                   key={step.number} 
                   className="step-container"
-                  // Add green border and slight background tint for final step
                   style={isFinalSummary ? { borderLeft: '4px solid #22c55e', backgroundColor: 'rgba(34, 197, 94, 0.05)' } : {}}
                 >
                   <div className="step-header">
@@ -717,13 +759,11 @@ function App() {
                     {step.description && (
                       <p 
                         className="step-text"
-                        // UPDATED COLOR HERE to light green
                         style={isFinalSummary ? { fontWeight: '600', color: '#22c55e', fontSize: '1.05em' } : {}}
                       >
                         {step.description}
                       </p>
                     )}
-                    {/* Only render output preview if it is NOT the final text-only summary */}
                     {!isFinalSummary && renderStepPreview(step)}
                   </div>
                 </div>
@@ -869,7 +909,6 @@ function App() {
                     </div>
                   ))}
                   
-                  {/* Only show streaming content if isLoading is true */}
                   {isLoading && streamingContent && renderStreamingContent()}
                 </>
               )}
@@ -877,7 +916,7 @@ function App() {
             </div>
 
             <div className="input-container">
-              <div className="input-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="input-wrapper" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
                 <input 
                     type="file" 
                     ref={fileInputRef} 
@@ -901,7 +940,8 @@ function App() {
                         justifyContent: 'center',
                         cursor: 'pointer',
                         color: 'var(--text-color, #fff)',
-                        padding: 0
+                        padding: 0,
+                        marginBottom: '2px' // Align with bottom of textarea
                     }}
                     title="Upload file"
                 >
@@ -916,6 +956,7 @@ function App() {
                 </button>
 
                 <textarea
+                  ref={textareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyPress}
@@ -923,12 +964,18 @@ function App() {
                   rows={1}
                   disabled={isLoading}
                   className="chat-input"
-                  style={{ flex: 1 }} 
+                  style={{ 
+                    flex: 1, 
+                    maxHeight: '200px', 
+                    resize: 'none', 
+                    overflowY: 'auto'
+                  }} 
                 />
                 <button
                   onClick={handleSend}
                   disabled={isLoading || !input.trim()}
                   className="send-button"
+                  style={{ marginBottom: '2px' }} // Align with bottom of textarea
                 >
                   <svg
                     width="20"
