@@ -11,16 +11,15 @@ import {
 
 const API_BASE = 'http://localhost:5001/api'
 
-// --- HELPER: Formats the retrieved JSON ---
 const formatReference = (data) => {
   if (!data) return "";
-  
+
   let formatted = `PROBLEM DESCRIPTION:\n${data.problem}\n\n`;
-  
+
   if (data.solution) {
     formatted += `SOLUTION SUMMARY:\n${data.solution}\n\n`;
   }
-  
+
   if (data.steps && Array.isArray(data.steps)) {
     formatted += `REFERENCE IMPLEMENTATION STEPS:\n`;
     data.steps.forEach(step => {
@@ -28,15 +27,14 @@ const formatReference = (data) => {
       formatted += `Code:\n${step.code}\n\n`;
     });
   }
-  
+
   return formatted;
 };
 
-// --- TYPEWRITER COMPONENT ---
 const Typewriter = ({ text, isThinking = false }) => {
   const [displayedText, setDisplayedText] = useState('')
   const targetTextRef = useRef(text)
-  const speed = 2 
+  const speed = 2
 
   useEffect(() => {
     targetTextRef.current = text
@@ -94,12 +92,13 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState(null)
   const [fileContext, setFileContext] = useState(null)
+  const [uploadedFileName, setUploadedFileName] = useState(null)
 
   const { isLoaded, isSignedIn, user } = useUser()
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const fileInputRef = useRef(null)
-  
+
   // Ref for the auto-growing textarea
   const textareaRef = useRef(null);
 
@@ -108,7 +107,7 @@ function App() {
   const streamingCodeRef = useRef(null);
 
   // --- AUTO-SCROLL LOGIC ---
-  
+
   // 1. Scroll main chat window (Smooth) on new completed messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: "end" })
@@ -117,24 +116,24 @@ function App() {
   // 2. Scroll main chat window INSTANTLY during streaming (prevents lag)
   useEffect(() => {
     if (streamingContent) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: "end" })
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: "end" })
     }
   }, [streamingContent])
 
   // 3. INTERNAL AUTO-SCROLL: Scroll step list and code block to bottom while streaming
   useEffect(() => {
     if (streamingContent) {
-        // requestAnimationFrame waits for the DOM to paint the new height before scrolling
-        requestAnimationFrame(() => {
-            if (streamingStepsRef.current) {
-                streamingStepsRef.current.scrollTop = streamingStepsRef.current.scrollHeight;
-            }
-            if (streamingCodeRef.current) {
-                streamingCodeRef.current.scrollTop = streamingCodeRef.current.scrollHeight;
-            }
-        });
+      // requestAnimationFrame waits for the DOM to paint the new height before scrolling
+      requestAnimationFrame(() => {
+        if (streamingStepsRef.current) {
+          streamingStepsRef.current.scrollTop = streamingStepsRef.current.scrollHeight;
+        }
+        if (streamingCodeRef.current) {
+          streamingCodeRef.current.scrollTop = streamingCodeRef.current.scrollHeight;
+        }
+      });
     }
-  }, [streamingContent]); 
+  }, [streamingContent]);
   // ----------------------------------
 
   // --- AUTO-GROW TEXTAREA LOGIC ---
@@ -150,10 +149,10 @@ function App() {
     if (!file || !user?.id) return;
 
     setIsUploading(true);
-    
+
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('user_id', user.id); 
+    formData.append('user_id', user.id);
 
     try {
       const response = await fetch(`${API_BASE}/upload`, {
@@ -162,26 +161,23 @@ function App() {
       });
 
       if (!response.ok) {
-         const errorText = await response.text();
-         throw new Error(`Upload failed: ${errorText}`);
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${errorText}`);
       }
 
       const data = await response.json();
       const summary = data.summary || `File '${file.name}' uploaded successfully.`;
-      
+
       setFileContext(summary);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        type: 'text', 
-        content: `✅ File uploaded: ${file.name}\n${summary}` 
-      }]);
+      setUploadedFileName(file.name);
+      // Removed chat message for upload as per request
 
     } catch (error) {
       console.error("Upload error:", error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        type: 'text', 
-        content: `❌ Error uploading file: ${error.message}` 
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        type: 'text',
+        content: `❌ Error uploading file: ${error.message}`
       }]);
     } finally {
       setIsUploading(false);
@@ -192,7 +188,7 @@ function App() {
     e.preventDefault();
     e.stopPropagation();
     if (!isLoading && !isUploading) {
-        setIsDragging(true);
+      setIsDragging(true);
     }
   }, [isLoading, isUploading]);
 
@@ -212,7 +208,7 @@ function App() {
       handleFileUpload(file);
       e.dataTransfer.clearData();
     }
-  }, [user?.id]); 
+  }, [user?.id]);
 
   const fetchChatHistory = useCallback(async (userUID) => {
     if (!userUID) {
@@ -310,7 +306,7 @@ function App() {
       alert('Please sign in to continue.')
       return
     }
-    
+
     let finalQuery = input.trim();
     if (fileContext) {
       finalQuery = `CONTEXT FROM UPLOADED FILE:\n${fileContext}\n\nUSER QUERY: ${finalQuery}`;
@@ -319,7 +315,10 @@ function App() {
     const userMessage = { role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    
+    // Clear file context/upload state as it's been consumed
+    setFileContext(null);
+    setUploadedFileName(null);
+
     // Reset textarea height manually after sending
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
@@ -351,7 +350,7 @@ function App() {
       const retrievedProblems = await retrieveResponse.json();
       const first = formatReference(retrievedProblems[0]);
       const second = formatReference(retrievedProblems[1]);
-      
+
       console.log("Retrieval Complete. Problem IDs:", retrievedProblems.map(p => p.id));
 
       setStreamingContent(prev => ({ ...prev, status: 'solving' }));
@@ -456,29 +455,29 @@ function App() {
         };
 
         setStreamingContent(prev => {
-            const exists = prev.steps.some(s => s.number === formattedStep.number);
-            if (exists) {
-                return {
-                    ...prev,
-                    currentStep: null,
-                    currentTokens: '',
-                    status: 'waiting'
-                };
-            }
-            
+          const exists = prev.steps.some(s => s.number === formattedStep.number);
+          if (exists) {
             return {
-                ...prev,
-                steps: [...prev.steps, formattedStep],
-                currentStep: null,
-                currentTokens: '',
-                status: 'waiting'
+              ...prev,
+              currentStep: null,
+              currentTokens: '',
+              status: 'waiting'
             };
+          }
+
+          return {
+            ...prev,
+            steps: [...prev.steps, formattedStep],
+            currentStep: null,
+            currentTokens: '',
+            status: 'waiting'
+          };
         });
         break;
 
       case 'done':
         const finalBackendSteps = event.data.steps || [];
-        
+
         const assistantMessage = finalBackendSteps.length > 0
           ? {
             role: 'assistant',
@@ -486,12 +485,12 @@ function App() {
             title: 'Solution Steps',
             summary: '',
             steps: finalBackendSteps.map((step, idx) => ({
-                number: step.step_id || idx + 1,
-                title: `Step ${step.step_id || idx + 1}`,
-                description: step.description,
-                code: step.code,
-                output: step.output,
-                error: step.error
+              number: step.step_id || idx + 1,
+              title: `Step ${step.step_id || idx + 1}`,
+              description: step.description,
+              code: step.code,
+              output: step.output,
+              error: step.error
             })),
           }
           : {
@@ -556,45 +555,33 @@ function App() {
     }
   }
 
+  /* --- NEW COMPONENTS RENDER LOGIC --- */
+
   const renderJupyterCell = (cell, idx) => (
-    <div key={idx} className="jupyter-cell">
+    <div key={idx} className="notebook-cell">
       {cell.code && (
-        <div className="jupyter-input-cell">
-          <div className="jupyter-cell-prompt">In [{cell.stepNumber}]:</div>
-          <div className="jupyter-code-content">
-            <pre className="jupyter-code"><code>{cell.code}</code></pre>
-          </div>
+        <div className="cell-wrapper">
+          <div className="cell-header-badge">Input [{cell.stepNumber}]</div>
+          <pre className="code-display"><code>{cell.code}</code></pre>
         </div>
       )}
+
+      {(cell.output || cell.error) && (
+        <div className={`output-display ${cell.error ? 'error-display' : ''}`}>
+          {cell.error ? <strong>Error: </strong> : null}
+          {cell.output || cell.error}
+        </div>
+      )}
+
       {cell.plots && cell.plots.length > 0 && (
-        <div className="jupyter-plot-cell">
-          <div className="jupyter-cell-prompt">Out [{cell.stepNumber}]:</div>
-          <div className="jupyter-plot-content">
-            {cell.plots.map((plot, plotIdx) => (
-              <img
-                key={plotIdx}
-                src={`data:image/png;base64,${plot}`}
-                alt={`Plot ${plotIdx + 1} from step ${cell.stepNumber}`}
-                className="jupyter-plot-image"
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      {cell.output && (
-        <div className="jupyter-output-cell">
-          <div className="jupyter-cell-prompt">Out [{cell.stepNumber}]:</div>
-          <div className="jupyter-output-content">
-            <pre className="jupyter-output">{cell.output}</pre>
-          </div>
-        </div>
-      )}
-      {cell.error && (
-        <div className="jupyter-error-cell">
-          <div className="jupyter-cell-prompt">Error:</div>
-          <div className="jupyter-error-content">
-            <pre className="jupyter-error">{cell.error}</pre>
-          </div>
+        <div className="plot-container">
+          {cell.plots.map((plot, plotIdx) => (
+            <img
+              key={plotIdx}
+              src={`data:image/png;base64,${plot}`}
+              alt={`Plot ${plotIdx + 1}`}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -619,92 +606,75 @@ function App() {
 
   const renderStreamingContent = () => {
     if (!streamingContent) return null;
-
     const codeCells = extractCodeCells(streamingContent.steps);
 
     return (
       <div className="message assistant">
         <div className="message-content">
-          <div className="assistant-message streaming two-column-layout">
+          <div className="two-column-layout">
+            {/* Steps Timeline Side */}
             <div className="steps-column">
               <div className="steps-header">
                 <div className="steps-title">
-                  <span role="img" aria-label="solution">📝</span>
-                  <span>Solution Steps</span>
-                  <span className="streaming-indicator">
-                    <span className="pulse"></span>
-                    {streamingContent.status === 'retrieving' && ' Retrieving...'}
-                    {streamingContent.status === 'generating' && ` Generating Step ${streamingContent.currentStep}...`}
-                    {streamingContent.status === 'executing' && ` Executing Step ${streamingContent.currentStep}...`}
-                    {streamingContent.status === 'waiting' && ' Processing...'}
+                  <div className="pulse-ring"></div>
+                  <span>
+                    {streamingContent.status === 'retrieving' && 'ANALYZING...'}
+                    {streamingContent.status === 'generating' && 'GENERATING STEPS...'}
+                    {streamingContent.status === 'executing' && 'RUNNING CODE...'}
+                    {streamingContent.status === 'waiting' && 'PROCESSING...'}
                   </span>
                 </div>
               </div>
 
-              {/* ATTACHED REF TO STEPS LIST FOR AUTO-SCROLL */}
-              {/* ADDED INLINE STYLES TO GUARANTEE SCROLLABILITY */}
-              <div 
-                className="steps-list" 
-                ref={streamingStepsRef}
-                style={{ maxHeight: '600px', overflowY: 'auto' }}
-              >
+              <div className="steps-list" ref={streamingStepsRef} style={{ scrollBehavior: 'smooth' }}>
                 {streamingContent.steps.map((step) => (
-                  <div key={step.number} className="step-container">
-                    <div className="step-header">
-                      <span className="step-number">{step.number}</span>
-                      <span className="step-title">{step.title}</span>
-                      <span className="step-status complete">✓</span>
-                    </div>
-                    <div className="step-content">
-                      {step.description && (
-                        <p className="step-text">{step.description}</p>
-                      )}
-                      {renderStepPreview(step)}
+                  <div key={step.number} className="step-timeline-item complete">
+                    <div className="step-marker-wrapper"><div className="step-marker">✓</div></div>
+                    <div className="step-card">
+                      <div className="step-card-title">{step.title}</div>
+                      {step.description && <div className="step-card-text">{step.description}</div>}
                     </div>
                   </div>
                 ))}
 
                 {streamingContent.currentStep && (
-                  <div className="step-container streaming-step">
-                    <div className="step-header">
-                      <span className="step-number">{streamingContent.currentStep}</span>
-                      <span className="step-title">Step {streamingContent.currentStep}</span>
-                      <span className="step-status generating">
-                        <span className="spinner"></span>
-                      </span>
+                  <div className="step-timeline-item active">
+                    <div className="step-marker-wrapper">
+                      <div className="step-marker">{streamingContent.currentStep}</div>
                     </div>
-                    <div className="step-content">
-                      {streamingContent.currentTokens && (
-                         <Typewriter text={streamingContent.currentTokens} isThinking={true} />
-                      )}
+                    <div className="step-card">
+                      <div className="step-card-title">Thinking...</div>
+                      <div className="step-card-text">
+                        {streamingContent.currentTokens && (
+                          <Typewriter text={streamingContent.currentTokens} isThinking={true} />
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
+            {/* Code Side */}
             <div className="code-column">
               <div className="jupyter-header">
-                <div className="jupyter-title">
-                  <span role="img" aria-label="code">💻</span>
-                  <span>Code & Output</span>
+                <div className="window-controls">
+                  <div className="window-dot dot-red"></div>
+                  <div className="window-dot dot-yellow"></div>
+                  <div className="window-dot dot-green"></div>
                 </div>
+                <div className="jupyter-title-text">execution-environment</div>
               </div>
-               {/* ATTACHED REF TO NOTEBOOK FOR AUTO-SCROLL */}
-               {/* ADDED INLINE STYLES TO GUARANTEE SCROLLABILITY */}
-               <div 
-                 className="jupyter-notebook" 
-                 ref={streamingCodeRef}
-                 style={{ maxHeight: '600px', overflowY: 'auto' }}
-               >
-                 {codeCells.length > 0 ? (
-                   codeCells.map(renderJupyterCell)
-                 ) : (
-                   <div className="jupyter-empty">
-                     <p>No code cells yet...</p>
-                   </div>
-                 )}
-               </div>
+
+              <div className="jupyter-notebook" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
+                {codeCells.length > 0 ? (
+                  codeCells.map(renderJupyterCell)
+                ) : (
+                  <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '60px', opacity: 0.7, fontStyle: 'italic' }}>
+                     // Terminals ready. Waiting for input...
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -728,65 +698,63 @@ function App() {
     const codeCells = extractCodeCells(message.steps);
 
     return (
-      <div className="assistant-message two-column-layout">
-        <div className="steps-column">
-          <div className="steps-header">
-            <div className="steps-title">
-              <span role="img" aria-label="solution">📝</span>
-              <span>{message.title || 'Solution Steps'}</span>
-            </div>
-            {message.summary && <p className="steps-summary">{message.summary}</p>}
+      <div className="assistant-message">
+        {/* Summary Card */}
+        {message.summary && (
+          <div style={{ marginBottom: '32px', padding: '24px', background: 'rgba(51, 65, 85, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '900px', margin: '0 auto 32px auto', backdropFilter: 'blur(5px)' }}>
+            <strong style={{ color: 'var(--accent-primary)', display: 'block', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.75rem' }}>Solution Summary</strong>
+            <div style={{ lineHeight: '1.8', fontSize: '1.1rem', color: '#e2e8f0' }}>{message.summary}</div>
           </div>
+        )}
 
-          <div className="steps-list">
-            {message.steps.map((step, index) => {
-              const isFinalSummary = index === message.steps.length - 1 && !step.code;
-
-              return (
-                <div 
-                  key={step.number} 
-                  className="step-container"
-                  style={isFinalSummary ? { borderLeft: '4px solid #22c55e', backgroundColor: 'rgba(34, 197, 94, 0.05)' } : {}}
-                >
-                  <div className="step-header">
-                    <span className="step-number">{step.number}</span>
-                    <span className="step-title">
-                      {isFinalSummary ? 'Final Solution' : step.title}
-                    </span>
-                    {isFinalSummary && <span style={{ marginLeft: '8px' }}>🎉</span>}
-                  </div>
-                  <div className="step-content">
-                    {step.description && (
-                      <p 
-                        className="step-text"
-                        style={isFinalSummary ? { fontWeight: '600', color: '#22c55e', fontSize: '1.05em' } : {}}
-                      >
-                        {step.description}
-                      </p>
-                    )}
-                    {!isFinalSummary && renderStepPreview(step)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="code-column">
-          <div className="jupyter-header">
-            <div className="jupyter-title">
-              <span role="img" aria-label="code">💻</span>
-              <span>Code & Output</span>
-            </div>
-          </div>
-          <div className="jupyter-notebook">
-            {codeCells.length > 0 ? (
-              codeCells.map(renderJupyterCell)
-            ) : (
-              <div className="jupyter-empty">
-                <p>No code cells to display</p>
+        <div className="two-column-layout">
+          {/* Steps Side */}
+          <div className="steps-column">
+            <div className="steps-header">
+              <div className="steps-title">
+                <span style={{ fontSize: '1.2rem' }}>🏁</span>
+                <span>Solution Roadmap</span>
               </div>
-            )}
+            </div>
+
+            <div className="steps-list">
+              {message.steps.map((step, index) => {
+                const isFinalSummary = index === message.steps.length - 1 && !step.code;
+                return (
+                  <div
+                    key={step.number}
+                    className={`step-timeline-item ${isFinalSummary ? 'final complete' : 'complete'}`}
+                  >
+                    <div className="step-marker-wrapper">
+                      <div className="step-marker">{isFinalSummary ? '★' : step.number}</div>
+                    </div>
+                    <div className="step-card">
+                      <div className="step-card-title">{isFinalSummary ? 'Conclusion' : step.title}</div>
+                      {step.description && <div className="step-card-text">{step.description}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Code Side */}
+          <div className="code-column">
+            <div className="jupyter-header">
+              <div className="window-controls">
+                <div className="window-dot dot-red"></div>
+                <div className="window-dot dot-yellow"></div>
+                <div className="window-dot dot-green"></div>
+              </div>
+              <div className="jupyter-title-text">read-only-view</div>
+            </div>
+            <div className="jupyter-notebook">
+              {codeCells.length > 0 ? (
+                codeCells.map(renderJupyterCell)
+              ) : (
+                <div style={{ padding: '32px', color: 'var(--text-muted)', textAlign: 'center' }}>No code steps in this solution.</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -841,32 +809,32 @@ function App() {
       </SignedOut>
 
       <SignedIn>
-        <div 
-            className="app"
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
+        <div
+          className="app"
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
         >
           {isDragging && (
             <div className="drag-overlay" style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.7)',
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                fontSize: '24px',
-                fontWeight: 'bold',
-                border: '4px dashed white',
-                margin: '20px',
-                borderRadius: '10px'
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '24px',
+              fontWeight: 'bold',
+              border: '4px dashed white',
+              margin: '20px',
+              borderRadius: '10px'
             }}>
-                Drop file to upload
+              Drop file to upload
             </div>
           )}
 
@@ -908,7 +876,7 @@ function App() {
                       </div>
                     </div>
                   ))}
-                  
+
                   {isLoading && streamingContent && renderStreamingContent()}
                 </>
               )}
@@ -916,43 +884,64 @@ function App() {
             </div>
 
             <div className="input-container">
-              <div className="input-wrapper" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-                <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    style={{ display: 'none' }} 
-                    onChange={(e) => {
-                        if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+              {uploadedFileName && (
+                <div className="file-attachment-indicator">
+                  <div className="file-icon">📄</div>
+                  <div className="file-info">
+                    <span className="file-name">{uploadedFileName}</span>
+                    <span className="file-status">Ready to analyze</span>
+                  </div>
+                  <button
+                    className="remove-file-btn"
+                    onClick={() => {
+                      setUploadedFileName(null);
+                      setFileContext(null);
+                      // Reset file input so same file can be selected again
+                      if (fileInputRef.current) fileInputRef.current.value = '';
                     }}
+                    title="Remove file"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <div className="input-wrapper" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+                  }}
                 />
                 <button
-                    className="upload-button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isLoading || isUploading}
-                    style={{
-                        background: 'transparent',
-                        border: '1px solid #ccc',
-                        borderRadius: '6px',
-                        width: '40px',
-                        height: '40px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        color: 'var(--text-color, #fff)',
-                        padding: 0,
-                        marginBottom: '2px' // Align with bottom of textarea
-                    }}
-                    title="Upload file"
+                  className="upload-button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading || isUploading}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #ccc',
+                    borderRadius: '6px',
+                    width: '40px',
+                    height: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: 'var(--text-color, #fff)',
+                    padding: 0,
+                    marginBottom: '2px' // Align with bottom of textarea
+                  }}
+                  title="Upload file"
                 >
-                    {isUploading ? (
-                        <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
-                    ) : (
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                    )}
+                  {isUploading ? (
+                    <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
+                  ) : (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                  )}
                 </button>
 
                 <textarea
@@ -964,12 +953,12 @@ function App() {
                   rows={1}
                   disabled={isLoading}
                   className="chat-input"
-                  style={{ 
-                    flex: 1, 
-                    maxHeight: '200px', 
-                    resize: 'none', 
+                  style={{
+                    flex: 1,
+                    maxHeight: '200px',
+                    resize: 'none',
                     overflowY: 'auto'
-                  }} 
+                  }}
                 />
                 <button
                   onClick={handleSend}
