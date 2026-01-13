@@ -32,39 +32,7 @@ const formatReference = (data) => {
   return formatted;
 };
 
-// --- TYPEWRITER COMPONENT ---
-const Typewriter = ({ text, isThinking = false }) => {
-  const [displayedText, setDisplayedText] = useState('')
-  const targetTextRef = useRef(text)
-  const speed = 2 
 
-  useEffect(() => {
-    targetTextRef.current = text
-  }, [text])
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setDisplayedText((current) => {
-        const target = targetTextRef.current
-        if (current.length < target.length) {
-          return target.slice(0, current.length + 1)
-        } else if (current.length > target.length) {
-          return target
-        }
-        return current
-      })
-    }, speed)
-
-    return () => clearInterval(timer)
-  }, [])
-
-  return (
-    <pre className="token-stream">
-      {displayedText}
-      {displayedText.length < text.length || isThinking ? <span className="cursor">|</span> : null}
-    </pre>
-  )
-}
 
 const extractCodeCells = (steps) => {
   return steps
@@ -424,7 +392,7 @@ function App() {
       case 'token':
         setStreamingContent(prev => ({
           ...prev,
-          currentTokens: event.data.accumulated
+          currentTokens: (prev.currentTokens || '') + (event.data.text || '')
         }));
         break;
 
@@ -675,7 +643,10 @@ function App() {
                     </div>
                     <div className="step-content">
                       {streamingContent.currentTokens && (
-                         <Typewriter text={streamingContent.currentTokens} isThinking={true} />
+                         <pre className="token-stream" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                           {streamingContent.currentTokens}
+                           <span className="cursor">|</span>
+                         </pre>
                       )}
                     </div>
                   </div>

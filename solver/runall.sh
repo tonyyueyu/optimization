@@ -22,7 +22,7 @@ docker run -d --name my-redis -p 6379:6379 redis
 
 echo "Starting FastAPI backend..."
 cd "$backendPath"
-python -m uvicorn app:app --reload --port 5001 &
+python -m uvicorn app:app --reload --port 5001 --timeout-keep-alive 60 &
 BACKEND_PID=$!
 cd ..
 

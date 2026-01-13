@@ -1,8 +1,8 @@
 import os
 import json
-import requests
+import httpx 
+import asyncio
 from dotenv import load_dotenv
-# Added UploadFile, File, Form to imports
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware 
 from fastapi.responses import StreamingResponse
@@ -10,11 +10,13 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import ollama
 from pinecone import Pinecone
-import google.generativeai as genai
-from history_manager import HistoryManager
-import asyncio
 import json_repair
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from history_manager import HistoryManager
+
+# --- NEW SDK IMPORTS ---
+from google import genai
+from google.genai import types
+# -----------------------
 
 # -- CONFIGURATION --
 load_dotenv()
@@ -25,18 +27,17 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 EXECUTOR_HOST = "http://localhost:8000"
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 
-DISABLE_GEMINI = False # Set to True to disable Gemini generation for debugging
-
 if not GOOGLE_API_KEY:
     raise ValueError("No API key found. Check your .env file.")
 
-genai.configure(api_key=GOOGLE_API_KEY)
+# Initialize the Client (New SDK)
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
 index = pc.Index(index_name)
 
-CHAT_MODEL_NAME = "gemini-2.5-flash"
+CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
 history_manager = HistoryManager()
@@ -87,29 +88,22 @@ def send_sse_event(event_type: str, data: dict) -> str:
 @app.post("/api/upload")
 async def upload_proxy(file: UploadFile = File(...), user_id: str = Form(...)):
     """
-    Receives file from React, forwards it to Docker container.
+    Receives file from React, forwards it to Docker container using Async Client.
     """
     try:
-        # Read the file content into memory
         file_content = await file.read()
+        files_to_send = {'file': (file.filename, file_content, file.content_type)}
         
-        # Prepare the file to send to the Docker container
-        files_to_send = {
-            'file': (file.filename, file_content, file.content_type)
-        }
-        
-        # Forward request to Docker (Executor)
-        # Note: We point to port 8000/upload
-        print(f"Forwarding file {file.filename} to Docker executor...")
-        response = requests.post(f"{EXECUTOR_HOST}/upload", files=files_to_send)
+        # OPTIMIZATION: Use httpx for non-blocking I/O
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{EXECUTOR_HOST}/upload", files=files_to_send)
         
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=f"Docker Upload Failed: {response.text}")
 
-        # Return the Docker container's response back to the Frontend
         return response.json()
 
-    except requests.exceptions.ConnectionError:
+    except httpx.RequestError: # Catch httpx specific errors
         raise HTTPException(status_code=503, detail="Could not connect to Docker execution environment")
     except Exception as e:
         print(f"Upload error: {e}")
@@ -124,23 +118,17 @@ async def retrieve(data: RetrieveRequest):
     try:
         print(f"Embedding query with: {EMBEDDING_MODEL_NAME}")
         
-        # Check if Ollama is accessible
         try:
             embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
             query_embed = embed_resp["embeddings"][0]
         except Exception as ollama_error:
-            error_msg = f"Ollama embedding failed: {str(ollama_error)}"
-            print(f"Warning: {error_msg}")
-            print("Ollama is not running. Returning empty results.")
+            print(f"Warning: Ollama embedding failed: {str(ollama_error)}")
             return []
         
-        # Check if Pinecone index is accessible
         try:
             results = index.query(vector=query_embed, top_k=2, include_metadata=True)
         except Exception as pinecone_error:
-            error_msg = f"Pinecone query failed: {str(pinecone_error)}"
-            print(f"Retrieval Error: {error_msg}")
-            raise HTTPException(status_code=503, detail=error_msg)
+            raise HTTPException(status_code=503, detail=f"Pinecone query failed: {str(pinecone_error)}")
 
         res = []
         fetched_ids = []
@@ -173,76 +161,71 @@ async def retrieve(data: RetrieveRequest):
 
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
+    # 1. Input Validation
     user_query = data.user_query.strip()
     if not user_query:
         raise HTTPException(status_code=400, detail="User query is required")
 
-    problem1 = data.problem
-    problem2 = data.second_problem
-    user_id = data.user_id
-
     async def stream_solution():
         step_history = []
-        if DISABLE_GEMINI:
-            print("DEBUG: Gemini generation disabled via code.")
-            
-            # Emulate a quick response so frontend finishes gracefully
-            yield send_sse_event("step_start", {
-                "step_number": 1,
-                "status": "disabled"
-            })
-            
-            yield send_sse_event("executing", {
-                "step_number": 1,
-                "code": "# Gemini generation is currently disabled for debugging.\nprint('Generation disabled')"
-            })
-
-            yield send_sse_event("done", {
-                "total_steps": 0,
-                "steps": []
-            })
-            return
-        else:
-            finished = False
-            code_output = "None (Start of problem)"
-            max_steps = 10
-            current_loop = 0
-
-            to_do = []
-
-            # 1. Define Safety Settings to allow "Harm" (damaged cars) and "Hate" (false positives)
-
-            safety_settings = {
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-            
-            model = genai.GenerativeModel(
-                model_name=CHAT_MODEL_NAME,
-                safety_settings=safety_settings,
-                generation_config={"response_mime_type": "application/json",
-                    "max_output_tokens": 8192, # <--- prevent cut-off errors
-                    "temperature": 0.1},
-            )
-            chat_session = model.start_chat(history=[])
         
-            # Save user message to history
-            if user_id:
-                history_manager.save_message(user_id, {
-                    "role": "user",
-                    "content": user_query,
-                    "type": "text"
-                })
+        # --- CONFIGURATION ---
+        safety_settings = [
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE
+            ),
+        ]
 
-            while not finished and current_loop < max_steps:
-                step_number = current_loop + 1
-                
-                yield send_sse_event("step_start", {
-                    "step_number": step_number,
-                    "status": "generating"
-                })
+        config = types.GenerateContentConfig(
+            temperature=0.1,
+            max_output_tokens=65536,
+            response_mime_type="application/json",
+            safety_settings=safety_settings,
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=False
+            )
+        )
+        
+        # 2. Initialize Chat Session
+        try:
+            chat_session = client.aio.chats.create(
+                model=CHAT_MODEL_NAME,
+                history=[],
+                config=config 
+            )
+            if data.user_id:
+                try:
+                    history_manager.save_message(data.user_id, {"role": "user", "content": user_query, "type": "text"})
+                except Exception as e:
+                    print(f"Warning: Failed to save user message: {e}")
+        except Exception as e:
+            yield send_sse_event("error", {"message": f"Failed to initialize AI session: {str(e)}"})
+            return
+
+        finished = False
+        code_output = "None (Start of problem)"
+        max_steps = 10
+        current_loop = 0
+        to_do = []
+
+        while not finished and current_loop < max_steps:
+            step_number = current_loop + 1
+            
+            try:
+                yield send_sse_event("step_start", {"step_number": step_number, "status": "generating"})
 
                 prompt = f"""
                 You are a Math Optimization Code Solver. 
@@ -252,14 +235,19 @@ async def solve(data: SolveRequest):
                 2. **LOGIC (Derive this):** Derive the Objective Function, Constraints, and Data Values STRICTLY from the USER QUERY.
                 
                 CRITICAL WARNINGS:
-                - **Do NOT copy constraints** from the Reference Examples unless they are explicitly stated in the User Query. (e.g., If the Reference has a "Price Index" constraint but the User Query does not, DO NOT include it).
-                - **Unit Check:** Analyze the units in the User Query (e.g., "1000 tons") versus the Reference (e.g., "Million tons"). Scale inputs if necessary to ensure numerical stability (target values between 0.1 and 100).
+                - **Do NOT copy constraints** from the Reference Examples unless they are explicitly stated in the User Query.
+                - **Unit Check:** Analyze the units in the User Query versus the Reference. Scale inputs if necessary.
+                
+                CRITICAL PROTOCOL:
+                1. You are NOT allowed to solve the entire problem at once.
+                2. You must output EXACTLY ONE JSON object representing the immediate next step.
+                3. After generating one JSON object, you must STOP immediately.
                 
                 GOAL: Solve this problem: "{user_query}"
                 
                 REFERENCE EXAMPLES:
-                1. {problem1}
-                2. {problem2}
+                1. {data.problem}
+                2. {data.second_problem}
 
                 CURRENT STATUS:
                 History of steps taken: {json.dumps(step_history)}
@@ -267,7 +255,7 @@ async def solve(data: SolveRequest):
                 Output of the LAST executed code block: {code_output}
 
                 INSTRUCTION:
-                1. **Step 1 Requirement:** Your first step MUST be "Problem Analysis & Data Setup". Before writing code, explicitly PARAPHRASE the constraints you found in the *User Query* text in the description.
+                1. **Step 1 Requirement:** Your first step MUST be "Problem Analysis & Data Setup". Before writing code, explicitly PARAPHRASE the constraints you found in the *User Query*.
                 2. For subsequent steps, validate the last executed step.
                 3. Update the to-do list.
                 4. Generate the NEXT step.
@@ -277,142 +265,105 @@ async def solve(data: SolveRequest):
                    - You MUST generate one final step to present the solution.
                    - Set "is_final_step": true.
                    - Put the text summary of the answer in "description".
-                   - IMPORTANT: Keep the description CONCISE. State the final numbers/recommendations directly. Do not recap the methodology.
-                   - Set "code": "" (EMPTY STRING). Do not write code in the final step.
-                   - Keep the exact same JSON structure as previous steps.
-                JSON SCHEMA:
+                   - Set "code": "" (EMPTY STRING).
+                   - Keep the exact same JSON structure.
+                JSON SCHEMA (Do not return a list, return a single object):
                 {{
                     "step_id": integer,
-                    "description": "string(MUST escape internal double quotes, e.g. \\\"text\\\")",
+                    "description": "string",
                     "code": "python code string",
                     "to_do": ["string", "string", ...],
                     "is_final_step": boolean
                 }}
-                **CRITICAL FORMATTING RULE:** Do not output Markdown formatting (like ```json). Output RAW JSON only. 
-                If you need to use a double quote " inside a description or code block, you MUST escape it like this: \"
                 """
-                
-                print(f"--- Gemini Generating Step {step_number} (Streaming) ---")
-                print(f"Prompt: {prompt}")
 
-                yield send_sse_event("step_start", {
-                    "step_number": step_number,
-                    "status": "waiting_for_model" # You can handle this status in frontend logic
-                })
-                
+                yield send_sse_event("ping", {"msg": "waiting_for_ai"})
+
+                accumulated_text = ""
                 try:
-                    response = await chat_session.send_message_async(prompt, stream=True) 
-
-                    accumulated_text = ""
+                    # --- FIX START ---
+                    # REMOVE: response_stream = await chat_session.send_message_stream(prompt)
+                    # REASON: send_message_stream IS the async generator. You cannot await it.
                     
-                    # 2. Iterate using 'async for'
-                    async for chunk in response:
-                        if chunk.candidates and chunk.candidates[0].content.parts:
-                            # Now it is safe to access chunk.text
-                            text_content = chunk.text 
+                    # Create the stream first by AWAITING the method
+                    stream = await chat_session.send_message_stream(prompt)
+
+                    # Then iterate over the stream
+                    async for chunk in stream:
+                        # Verify chunk has text content before accessing
+                        if chunk.text:
+                            accumulated_text += chunk.text
+                            yield send_sse_event("token", {"step_number": step_number, "text": chunk.text})
                             
-                            if text_content:
-                                accumulated_text += text_content
-                                yield send_sse_event("token", {
-                                    "step_number": step_number,
-                                    "text": text_content,
-                                    "accumulated": accumulated_text
-                                })
-                                await asyncio.sleep(0)
-                    
+                            # Keep this sleep! It forces the event loop to flush the buffer
+                            await asyncio.sleep(0.01)
+                    # --- FIX END ---
+                            
+                except Exception as ai_err:
+                    yield send_sse_event("error", {"message": f"AI Connection Error: {str(ai_err)}"})
+                    return
+
+                # Safe JSON Parsing
+                try:
                     step_data = json_repair.loads(accumulated_text)
-                    
-                    yield send_sse_event("generation_complete", {
-                        "step_number": step_number,
-                        "step_data": step_data
-                    })
-                    
-                except json.JSONDecodeError as e:
-                    yield send_sse_event("error", {
-                        "message": f"Failed to parse AI response as JSON: {str(e)}",
-                        "raw_response": accumulated_text
-                    })
-                    return
-                except Exception as e:
-                    yield send_sse_event("error", {
-                        "message": f"Failed to generate step from AI: {str(e)}"
-                    })
-                    return
+                except Exception:
+                    step_data = {"description": "Error parsing AI response", "code": "", "is_final_step": False}
+                
+                if not isinstance(step_data, dict):
+                    step_data = {"description": f"Invalid AI Output: {str(step_data)[:100]}", "code": "", "is_final_step": False}
 
-                yield send_sse_event("executing", {
-                    "step_number": step_number,
-                    "code": step_data.get("code", "")
-                })
+                to_do = step_data.get("to_do", [])
+                code_to_run = step_data.get("code", "")
+                
+                # Execution
+                yield send_sse_event("executing", {"step_number": step_number, "code": code_to_run})
+                yield send_sse_event("ping", {"msg": "executing_code"}) 
 
-                if step_data.get("code"):
-                    print(f"Sending code to Docker: {step_data.get('code')}")
+                execution_result = {"output": "", "error": "", "plots": []}
+                
+                if code_to_run:
                     try:
-                        docker_response = requests.post(
-                            EXECUTOR_URL,
-                            json={"code": step_data.get("code", "")},
-                            timeout=30,
-                        )
-                        if docker_response.status_code == 200:
-                            execution_result = docker_response.json()
-                        else:
-                            execution_result = {
-                                "output": "",
-                                "error": f"Docker API Error: {docker_response.status_code}",
-                            }
-                    except requests.exceptions.ConnectionError:
-                        execution_result = {
-                            "output": "",
-                            "error": "Could not connect to Docker container. Is it running?",
-                        }
-                else:
-                    execution_result = {
-                        "output": "", # Empty output for summary
-                        "error": "",
-                        "plots": []
-                    }
+                        async with httpx.AsyncClient(timeout=60.0) as exe_client:
+                            resp = await exe_client.post(EXECUTOR_URL, json={"code": code_to_run})
+                            if resp.status_code == 200:
+                                execution_result = resp.json()
+                            else:
+                                execution_result = {"output": "", "error": f"Execution API Error: {resp.status_code}"}
+                    except Exception as exe_err:
+                        execution_result = {"output": "", "error": f"Execution Connection Failed: {str(exe_err)}"}
 
-                code_output = execution_result["output"]
-                if execution_result["error"]:
+                code_output = execution_result.get("output", "")
+                if execution_result.get("error"):
                     code_output += f"\nERROR: {execution_result['error']}"
 
                 full_step_record = {
-                    "step_id": step_data.get("step_id"),
-                    "description": step_data.get("description"),
-                    "code": step_data.get("code"),
-                    "output": execution_result["output"],
-                    "error": execution_result["error"],
+                    "step_id": step_data.get("step_id", step_number),
+                    "description": step_data.get("description", ""),
+                    "code": code_to_run,
+                    "output": execution_result.get("output", ""),
+                    "error": execution_result.get("error", ""),
                     "plots": execution_result.get("plots", []),
                 }
                 step_history.append(full_step_record)
 
-                to_do = step_data.get("to_do", to_do) 
-                print(to_do)
-
-                yield send_sse_event("step_complete", {
-                    "step": full_step_record,
-                    "step_number": step_number
-                })
+                yield send_sse_event("step_complete", {"step": full_step_record, "step_number": step_number})
 
                 if step_data.get("is_final_step", False):
                     finished = True
-
                 current_loop += 1
 
-            # Save assistant response to history
-            if user_id and step_history:
-                assistant_message = {
-                    "role": "assistant",
-                    "type": "steps",
-                    "title": "Solution Steps",
-                    "summary": "",
-                    "steps": step_history
-                }
-                history_manager.save_message(user_id, assistant_message)
+            except Exception as loop_error:
+                print(f"CRITICAL ERROR IN STEP {step_number}: {loop_error}")
+                yield send_sse_event("error", {"message": f"Internal Server Error: {str(loop_error)}"})
+                return
 
-            yield send_sse_event("done", {
-                "total_steps": len(step_history),
-                "steps": step_history
-            })
+        if data.user_id and step_history:
+            try:
+                history_manager.save_message(data.user_id, {"role": "assistant", "type": "steps", "steps": step_history})
+            except Exception:
+                pass
+
+        yield send_sse_event("done", {"total_steps": len(step_history), "steps": step_history})
 
     return StreamingResponse(
         stream_solution(),
@@ -424,7 +375,7 @@ async def solve(data: SolveRequest):
         }
     )
 
-
+# ... (Chat History Endpoints remain unchanged)
 # -------------------- REDIS Chat History Endpoints --------------------
 @app.post("/api/chathistory")
 async def get_chat_history(data: ChatHistoryRequest):
@@ -436,9 +387,7 @@ async def get_chat_history(data: ChatHistoryRequest):
     
     try:
         messages = history_manager.fetch_user_history(user_id)
-        
         return {"history": messages, "count": len(messages)}
-    
     except Exception as e:
         print(f"Error fetching chat history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -455,7 +404,6 @@ async def clear_chat_history(data: ClearHistoryRequest):
     try:
         success = history_manager.clear_user_history(user_id)
         return {"success": success, "message": "History cleared" if success else "Failed to clear"}
-    
     except Exception as e:
         print(f"Error clearing chat history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -467,11 +415,6 @@ async def save_chat_message(data: SaveMessageRequest):
     try:
         chat_id = history_manager.save_message(data.user_id, data.message)
         return {"success": True, "chat_id": chat_id}
-    
     except Exception as e:
         print(f"Error saving message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# -------------------- Run --------------------
-# Run with: uvicorn app:app --reload --port 5001
