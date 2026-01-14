@@ -535,6 +535,9 @@ function App() {
       setIsLoading(false);
       abortControllerRef.current = null;
       setStreamingContent(null);
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: "end" });
+      }, 100);
     }
   };
 
@@ -654,6 +657,11 @@ function App() {
                     <div className="step-card">
                       <div className="step-card-title">{step.title}</div>
                       {step.description && <div className="step-card-text">{step.description}</div>}
+                      {(step.output || step.error) && (
+                        <div className="step-output" style={{ marginTop: '12px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'monospace', color: step.error ? '#fca5a5' : '#4ade80', border: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto' }}>
+                          {step.error ? `Error: ${step.error}` : `> ${step.output}`}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -749,6 +757,11 @@ function App() {
                     <div className="step-card">
                       <div className="step-card-title">{isFinalSummary ? 'Conclusion' : step.title}</div>
                       {step.description && <div className="step-card-text">{step.description}</div>}
+                      {(step.output || step.error) && !isFinalSummary && (
+                        <div className="step-output" style={{ marginTop: '12px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'monospace', color: step.error ? '#fca5a5' : '#4ade80', border: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto' }}>
+                          {step.error ? `Error: ${step.error}` : `> ${step.output}`}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
