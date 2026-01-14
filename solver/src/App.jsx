@@ -556,23 +556,6 @@ function App() {
     </div>
   )
 
-  const renderStepPreview = (step) => (
-    <>
-      {step.output && (
-        <div className="step-field">
-          <div className="step-label">Output</div>
-          <div className="step-output-preview">{truncateText(step.output)}</div>
-        </div>
-      )}
-      {step.error && (
-        <div className="step-field error">
-          <div className="step-label">Error</div>
-          <div className="step-error-preview">{truncateText(step.error)}</div>
-        </div>
-      )}
-    </>
-  )
-
   const renderStreamingContent = () => {
     if (!streamingContent) return null;
     const codeCells = extractCodeCells(streamingContent.steps);
@@ -616,9 +599,9 @@ function App() {
                       <div className="step-card-text">
                         {streamingContent.currentTokens && (
                           <pre className="token-stream" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-                           {streamingContent.currentTokens}
-                           <span className="cursor">|</span>
-                         </pre>
+                            {streamingContent.currentTokens}
+                            <span className="cursor">|</span>
+                          </pre>
                         )}
                       </div>
                     </div>
