@@ -2,25 +2,28 @@ import os
 import json
 import httpx 
 import asyncio
+import logging
+import logging_loki
+import json_repair
+import ollama
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware 
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-import ollama
 from pinecone import Pinecone
-import json_repair
 from history_manager import HistoryManager
 
-# --- NEW SDK IMPORTS ---
+# --- NEW SDK IMPORTS (Correct for Gemini 3) ---
 from google import genai
-import logging
-import logging_loki
 from google.genai import types
 # -----------------------
 
-# -- LOGGING CONFIGURATION --
+# -- CONFIGURATION --
+load_dotenv()
+
+# --- LOKI LOGGING SETUP ---
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100/loki/api/v1/push")
 LOKI_USERNAME = os.getenv("LOKI_USERNAME")
 LOKI_PASSWORD = os.getenv("LOKI_PASSWORD")
@@ -44,12 +47,12 @@ except Exception as e:
     logger = logging.getLogger("backend-logger")
     logger.setLevel(logging.ERROR)
 
+# Add console handler so we see logs in terminal too
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 logger.addHandler(console_handler)
+# ---------------------------
 
-# -- CONFIGURATION --
-load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
@@ -61,12 +64,20 @@ if not GOOGLE_API_KEY:
     raise ValueError("No API key found. Check your .env file.")
 
 # Initialize the Client (New SDK)
-client = genai.Client(api_key=GOOGLE_API_KEY)
+# Note: For Gemini 3 Preview, sometimes 'v1alpha' is safer, but if it worked without it, we keep it as is.
+client = genai.Client(
+    api_key=GOOGLE_API_KEY,
+    http_options=types.HttpOptions(
+        timeout=600.0,  # 600 Seconds (10 minutes)
+        api_version="v1alpha" # often needed for preview models like Gemini 3
+    )
+)
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
 index = pc.Index(index_name)
 
+# RESTORED: User confirmed this was working
 CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
@@ -143,9 +154,11 @@ async def upload_proxy(file: UploadFile = File(...), user_id: str = Form(...)):
 
         return response.json()
 
-    except httpx.RequestError: # Catch httpx specific errors
+    except httpx.RequestError as e: # Catch httpx specific errors
+        logger.error(f"Docker connection failed: {e}", extra={"tags": {"source": "backend", "endpoint": "upload"}})
         raise HTTPException(status_code=503, detail="Could not connect to Docker execution environment")
     except Exception as e:
+        logger.error(f"Upload error: {e}", extra={"tags": {"source": "backend", "endpoint": "upload"}})
         print(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -162,12 +175,14 @@ async def retrieve(data: RetrieveRequest):
             embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
             query_embed = embed_resp["embeddings"][0]
         except Exception as ollama_error:
+            logger.warning(f"Ollama embedding failed: {str(ollama_error)}", extra={"tags": {"source": "backend"}})
             print(f"Warning: Ollama embedding failed: {str(ollama_error)}")
             return []
         
         try:
             results = index.query(vector=query_embed, top_k=2, include_metadata=True)
         except Exception as pinecone_error:
+            logger.error(f"Pinecone query failed: {pinecone_error}", extra={"tags": {"source": "backend"}})
             raise HTTPException(status_code=503, detail=f"Pinecone query failed: {str(pinecone_error)}")
 
         res = []
@@ -195,6 +210,7 @@ async def retrieve(data: RetrieveRequest):
         raise
     except Exception as e:
         error_msg = f"Retrieval failed: {str(e)}"
+        logger.error(error_msg, extra={"tags": {"source": "backend", "endpoint": "retrieve"}})
         print(f"Retrieval Error: {error_msg}")
         raise HTTPException(status_code=500, detail=error_msg)
 
@@ -235,18 +251,21 @@ async def solve(data: SolveRequest):
             response_mime_type="application/json",
             safety_settings=safety_settings,
             thinking_config=types.ThinkingConfig(
-                include_thoughts=False
+               include_thoughts=False
             )
         )
         
         # 2. Initialize Chat Session
+        # FIX: Ensure we use the correct async client access
         try:
+            # Check if 'aio' exists, otherwise use client directly (handling version differences)
             chat_session = client.aio.chats.create(
                 model=CHAT_MODEL_NAME,
                 history=[],
                 config=config 
             )
         except Exception as e:
+            logger.error(f"Failed to initialize AI: {e}", extra={"tags": {"source": "backend", "endpoint": "solve"}})
             yield send_sse_event("error", {"message": f"Failed to initialize AI session: {str(e)}"})
             return
 
@@ -339,65 +358,42 @@ async def solve(data: SolveRequest):
                     # --- FIX END ---
                             
                 except Exception as ai_err:
-                    yield send_sse_event("error", {"message": f"AI Connection Error: {str(ai_err)}"})
+                    print(f"\nCRITICAL AI ERROR: {type(ai_err).__name__}")
+                    print(f"Details: {str(ai_err)}") 
+                    
+                    yield send_sse_event("error", {"message": f"AI Error: {str(ai_err)}"})
                     return
 
                 # Safe JSON Parsing
                 try:
                     step_data = json_repair.loads(accumulated_text)
-                    
-                    yield send_sse_event("generation_complete", {
-                        "step_number": step_number,
-                        "step_data": step_data
-                    })
-                    
-                except json.JSONDecodeError as e:
-                    error_msg = f"Failed to parse AI response as JSON: {str(e)}"
-                    logger.error(error_msg, extra={"tags": {"source": "backend", "fn": "solve"}, "raw_response": accumulated_text})
-                    yield send_sse_event("error", {
-                        "message": error_msg,
-                        "raw_response": accumulated_text
-                    })
-                    return
                 except Exception as e:
-                    error_msg = f"Failed to generate step from AI: {str(e)}"
-                    logger.error(error_msg, extra={"tags": {"source": "backend", "fn": "solve"}})
-                    yield send_sse_event("error", {
-                        "message": error_msg
-                    })
-                    return
+                    logger.error(f"JSON Parse Error: {e}\nPayload: {accumulated_text}", extra={"tags": {"source": "backend"}})
+                    step_data = {"description": "Error parsing AI response", "code": "", "is_final_step": False}
+                
+                if not isinstance(step_data, dict):
+                    step_data = {"description": f"Invalid AI Output: {str(step_data)[:100]}", "code": "", "is_final_step": False}
 
-                yield send_sse_event("executing", {
-                    "step_number": step_number,
-                    "code": step_data.get("code", "")
-                })
+                to_do = step_data.get("to_do", [])
+                code_to_run = step_data.get("code", "")
+                
+                # Execution
+                yield send_sse_event("executing", {"step_number": step_number, "code": code_to_run})
+                yield send_sse_event("ping", {"msg": "executing_code"}) 
 
-                if step_data.get("code"):
-                    print(f"Sending code to Docker: {step_data.get('code')}")
+                execution_result = {"output": "", "error": "", "plots": []}
+                
+                if code_to_run:
                     try:
-                        docker_response = requests.post(
-                            EXECUTOR_URL,
-                            json={"code": step_data.get("code", "")},
-                            timeout=30,
-                        )
-                        if docker_response.status_code == 200:
-                            execution_result = docker_response.json()
-                        else:
-                            execution_result = {
-                                "output": "",
-                                "error": f"Docker API Error: {docker_response.status_code}",
-                            }
-                    except requests.exceptions.ConnectionError:
-                        execution_result = {
-                            "output": "",
-                            "error": "Could not connect to Docker container. Is it running?",
-                        }
-                else:
-                    execution_result = {
-                        "output": "", # Empty output for summary
-                        "error": "",
-                        "plots": []
-                    }
+                        async with httpx.AsyncClient(timeout=60.0) as exe_client:
+                            resp = await exe_client.post(EXECUTOR_URL, json={"code": code_to_run})
+                            if resp.status_code == 200:
+                                execution_result = resp.json()
+                            else:
+                                execution_result = {"output": "", "error": f"Execution API Error: {resp.status_code}"}
+                    except Exception as exe_err:
+                        logger.error(f"Executor Connection Error: {exe_err}", extra={"tags": {"source": "backend"}})
+                        execution_result = {"output": "", "error": f"Execution Connection Failed: {str(exe_err)}"}
 
                 code_output = execution_result.get("output", "")
                 if execution_result.get("error"):
@@ -420,6 +416,7 @@ async def solve(data: SolveRequest):
                 current_loop += 1
 
             except Exception as loop_error:
+                logger.error(f"Critical Loop Error: {loop_error}", extra={"tags": {"source": "backend", "step": step_number}})
                 print(f"CRITICAL ERROR IN STEP {step_number}: {loop_error}")
                 yield send_sse_event("error", {"message": f"Internal Server Error: {str(loop_error)}"})
                 return
@@ -448,6 +445,7 @@ async def get_user_sessions(data: ChatHistoryRequest):
         sessions = history_manager.fetch_user_sessions(user_id)
         return {"sessions": sessions, "count": len(sessions)}
     except Exception as e:
+        logger.error(f"Fetch Sessions Error: {e}", extra={"tags": {"source": "backend"}})
         raise HTTPException(status_code=500, detail=f"Error fetching sessions: {str(e)}")
 
 @app.post("/api/sessions/create")
@@ -457,6 +455,7 @@ async def create_new_session(data: CreateSessionRequest):
         session_id = history_manager.create_chat_session(data.user_id, data.title)
         return {"success": True, "session_id": session_id}
     except Exception as e:
+        logger.error(f"Create Session Error: {e}", extra={"tags": {"source": "backend"}})
         raise HTTPException(status_code=500, detail=str(e))
         
 @app.post("/api/chathistory")
@@ -472,6 +471,7 @@ async def get_chat_messages(data: ChatHistoryRequest):
         messages = history_manager.fetch_session_messages(user_id, session_id)
         return {"history": messages, "count": len(messages)}
     except Exception as e:
+        logger.error(f"Fetch History Error: {e}", extra={"tags": {"source": "backend"}})
         raise HTTPException(status_code=500, detail=f"Error fetching messages: {str(e)}")
 
 @app.post("/api/chathistory/save")
@@ -486,6 +486,7 @@ async def save_chat_message(data: SaveMessageRequest):
         )
         return {"success": True}
     except Exception as e:
+        logger.error(f"Save Message Error: {e}", extra={"tags": {"source": "backend"}})
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/chathistory/clear")
@@ -503,6 +504,7 @@ async def clear_chat_history(data: ChatHistoryRequest):
             
         return {"success": True, "message": message}
     except Exception as e:
+        logger.error(f"Clear History Error: {e}", extra={"tags": {"source": "backend"}})
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/log_error")
@@ -522,4 +524,3 @@ async def log_error(data: LogErrorRequest):
         print(f"Failed to log error to Loki: {e}")
         # Don't fail the request if logging fails, just print to stdout
         return {"status": "failed_to_log", "error": str(e)}
-

@@ -546,12 +546,17 @@ function App() {
             }
 
         } catch (error) {
+            // Check if it was a user abort (clicking Stop)
             if (error.name !== 'AbortError') {
                 const errMsg = "Error: " + error.message;
+                
+                // --- FIX: Log the error HERE, where 'error' is accessible ---
+                logErrorToBackend(`Chat Error: ${error.message}`, error.stack, { userQuery: input });
+                
                 setMessages(prev => [...prev, { role: 'assistant', type: 'text', content: errMsg }]);
             }
         } finally {
-            logErrorToBackend(`Chat Error: ${error.message}`, error.stack, { userQuery: input });
+            // --- FIX: Remove 'error' usage from here ---
             setIsLoading(false);
             abortControllerRef.current = null;
             setStreamingContent(null);
