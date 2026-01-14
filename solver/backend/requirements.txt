@@ -11,3 +11,5 @@ redis
 pydantic
 python-multipart
 json_repair
+firebase-admin
+python-logging-loki

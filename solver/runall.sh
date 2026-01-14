@@ -16,13 +16,24 @@ docker run -d \
   -p 8000:8000 \
   math-executor
 
+# Start Monitoring
+echo "Starting Monitoring (Loki + Grafana)..."
+# Check for 'docker compose' or 'docker-compose'
+if docker compose version >/dev/null 2>&1; then
+    docker compose -f monitoring/docker-compose.yml up -d
+elif docker-compose version >/dev/null 2>&1; then
+    docker-compose -f monitoring/docker-compose.yml up -d
+else
+    echo "WARNING: neither 'docker compose' nor 'docker-compose' found. Monitoring will not start."
+fi
+
 echo "Starting Redis..."
 docker rm -f my-redis 2>/dev/null || true
 docker run -d --name my-redis -p 6379:6379 redis
 
 echo "Starting FastAPI backend..."
 cd "$backendPath"
-python -m uvicorn app:app --reload --port 5001 &
+python3 -m uvicorn app:app --reload --port 5001 &
 BACKEND_PID=$!
 cd ..
 
@@ -35,6 +46,7 @@ echo "======================================"
 echo "Backend   → http://localhost:5001"
 echo "Executor  → http://localhost:8000"
 echo "Frontend  → http://localhost:5173"
+echo "Grafana   → http://localhost:3000 (User/Pass: admin/admin)"
 echo "Redis     → localhost:6379"
 echo "======================================"
 

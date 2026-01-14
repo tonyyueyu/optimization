@@ -11,6 +11,23 @@ import {
 
 const API_BASE = 'http://localhost:5001/api'
 
+const logErrorToBackend = async (message, stack = null, additionalData = null) => {
+  try {
+    await fetch(`${API_BASE}/log_error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'frontend',
+        message: message,
+        stack_trace: stack,
+        additional_data: additionalData
+      })
+    });
+  } catch (err) {
+    console.error("Failed to log error to backend:", err);
+  }
+};
+
 const formatReference = (data) => {
   if (!data) return "";
 
@@ -174,6 +191,7 @@ function App() {
 
     } catch (error) {
       console.error("Upload error:", error);
+      logErrorToBackend(`Upload Error: ${error.message}`, error.stack, { fileName: file.name });
       setMessages(prev => [...prev, {
         role: 'assistant',
         type: 'text',
@@ -262,6 +280,7 @@ function App() {
 
       setMessages(formattedMessages)
     } catch (err) {
+      logErrorToBackend(`History Fetch Error: ${err.message}`, err.stack, { userId: userUID });
       setHistoryError(err.message)
     } finally {
       setHistoryLoading(false)
@@ -395,6 +414,7 @@ function App() {
       if (error.name === 'AbortError') {
         return;
       }
+      logErrorToBackend(`Chat Error: ${error.message}`, error.stack, { userQuery: input });
 
       setStreamingContent(null);
       const errorMessage = {
@@ -506,6 +526,7 @@ function App() {
 
       case 'error':
         setStreamingContent(null);
+        logErrorToBackend(`SSE Error Event: ${event.data.message}`, null, { raw: event.data });
         const errorMessage = {
           role: 'assistant',
           type: 'text',

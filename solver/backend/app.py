@@ -14,7 +14,37 @@ import google.generativeai as genai
 from history_manager import HistoryManager
 import asyncio
 import json_repair
+import logging
+import logging_loki
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+
+# -- LOGGING CONFIGURATION --
+LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100/loki/api/v1/push")
+LOKI_USERNAME = os.getenv("LOKI_USERNAME")
+LOKI_PASSWORD = os.getenv("LOKI_PASSWORD")
+
+loki_auth = None
+if LOKI_USERNAME and LOKI_PASSWORD:
+    loki_auth = (LOKI_USERNAME, LOKI_PASSWORD)
+
+try:
+    handler = logging_loki.LokiHandler(
+        url=LOKI_URL, 
+        tags={"application": "fastapi-backend"},
+        auth=loki_auth,
+        version="1",
+    )
+    logger = logging.getLogger("backend-logger")
+    logger.setLevel(logging.ERROR)
+    logger.addHandler(handler)
+except Exception as e:
+    print(f"Failed to initialize Loki logging: {e}")
+    logger = logging.getLogger("backend-logger")
+    logger.setLevel(logging.ERROR)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+logger.addHandler(console_handler)
 
 # -- CONFIGURATION --
 load_dotenv()
@@ -36,7 +66,7 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
 index = pc.Index(index_name)
 
-CHAT_MODEL_NAME = "gemini-3-flash-preview"
+CHAT_MODEL_NAME = "gemini-3-flash-previewnigga"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
 history_manager = HistoryManager()
@@ -74,6 +104,13 @@ class ClearHistoryRequest(BaseModel):
 class SaveMessageRequest(BaseModel):
     user_id: str
     message: Dict[str, Any]
+
+class LogErrorRequest(BaseModel):
+    source: str # "frontend" or "backend"
+    message: str
+    stack_trace: Optional[str] = None
+    user_id: Optional[str] = None
+    additional_data: Optional[Dict[str, Any]] = None
 
 
 # -------------------- Helper Functions --------------------
@@ -328,14 +365,18 @@ async def solve(data: SolveRequest):
                     })
                     
                 except json.JSONDecodeError as e:
+                    error_msg = f"Failed to parse AI response as JSON: {str(e)}"
+                    logger.error(error_msg, extra={"tags": {"source": "backend", "fn": "solve"}, "raw_response": accumulated_text})
                     yield send_sse_event("error", {
-                        "message": f"Failed to parse AI response as JSON: {str(e)}",
+                        "message": error_msg,
                         "raw_response": accumulated_text
                     })
                     return
                 except Exception as e:
+                    error_msg = f"Failed to generate step from AI: {str(e)}"
+                    logger.error(error_msg, extra={"tags": {"source": "backend", "fn": "solve"}})
                     yield send_sse_event("error", {
-                        "message": f"Failed to generate step from AI: {str(e)}"
+                        "message": error_msg
                     })
                     return
 
@@ -471,6 +512,24 @@ async def save_chat_message(data: SaveMessageRequest):
     except Exception as e:
         print(f"Error saving message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/log_error")
+async def log_error(data: LogErrorRequest):
+    """Log an error to Loki."""
+    try:
+        logger.error(
+            data.message, 
+            extra={
+                "tags": {"source": data.source, "user_id": data.user_id or "anonymous"},
+                "stack_trace": data.stack_trace,
+                "additional_data": str(data.additional_data)
+            }
+        )
+        return {"status": "logged"}
+    except Exception as e:
+        print(f"Failed to log error to Loki: {e}")
+        # Don't fail the request if logging fails, just print to stdout
+        return {"status": "failed_to_log", "error": str(e)}
 
 
 # -------------------- Run --------------------
