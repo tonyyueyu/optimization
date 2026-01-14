@@ -67,7 +67,7 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
 index = pc.Index(index_name)
 
-CHAT_MODEL_NAME = "gemini-3-flash-previewnigga"
+CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
 
 history_manager = HistoryManager()
