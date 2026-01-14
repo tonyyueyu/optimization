@@ -3,7 +3,7 @@ flask-cors
 fastapi
 uvicorn[standard]
 requests
-google-generativeai
+google-genai
 ollama              
 pinecone
 python-dotenv
