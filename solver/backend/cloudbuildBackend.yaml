@@ -1,0 +1,36 @@
+steps:
+  # 1. Build the Backend Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build', 
+      '-t', 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/backend-service', 
+      '-f', 'Dockerfile.backend',
+      '.'
+    ]
+
+  # 2. PUSH the image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/backend-service']
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'backend-service'
+      - '--image'
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/backend-service'
+      - '--region'
+      - 'us-west1'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--clear-secrets'
+      - '--set-env-vars'
+images:
+  - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/backend-service'

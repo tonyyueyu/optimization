@@ -1,20 +1,9 @@
 import os
 import json
-import httpx 
-_original_async_client_init = httpx.AsyncClient.__init__
-
-def _patched_async_client_init(self, *args, **kwargs):
-    kwargs['timeout'] = httpx.Timeout(600.0, connect=60.0, read=600.0, write=60.0, pool=60.0)
-    return _original_async_client_init(self, *args, **kwargs)
-
-httpx.AsyncClient.__init__ = _patched_async_client_init
-print("✅ HTTPX patched with 600s timeout")
-
+import httpx
 import asyncio
 import logging
-import logging_loki
 import json_repair
-import ollama
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware 
@@ -23,67 +12,67 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from pinecone import Pinecone
 from history_manager import HistoryManager
-
-# --- NEW SDK IMPORTS (Correct for Gemini 3) ---
+import google.cloud.logging
+from google.cloud.logging.handlers import CloudLoggingHandler
 from google import genai
 from google.genai import types
-# -----------------------
 
-# -- CONFIGURATION --
+# 1. Patch HTTPX (Keep this at the very top)
+_original_async_client_init = httpx.AsyncClient.__init__
+def _patched_async_client_init(self, *args, **kwargs):
+    kwargs['timeout'] = httpx.Timeout(600.0, connect=60.0, read=600.0, write=60.0, pool=60.0)
+    return _original_async_client_init(self, *args, **kwargs)
+httpx.AsyncClient.__init__ = _patched_async_client_init
+
+# 2. Environment & Logging
 load_dotenv()
 
+def setup_logger():
+    l = logging.getLogger("backend-logger")
+    l.setLevel(logging.INFO)
+    # Only attach Cloud Logging if running in the cloud
+    if os.getenv("K_SERVICE"): 
+        try:
+            client = google.cloud.logging.Client()
+            client.setup_logging()
+        except Exception as e:
+            print(f"Cloud Logging failed to init: {e}")
+    
+    if not l.handlers:
+        handler = logging.StreamHandler()
+        l.addHandler(handler)
+    return l
 
-# --- LOKI LOGGING SETUP ---
-LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100/loki/api/v1/push")
-LOKI_USERNAME = os.getenv("LOKI_USERNAME")
-LOKI_PASSWORD = os.getenv("LOKI_PASSWORD")
+logger = setup_logger()
 
-loki_auth = None
-if LOKI_USERNAME and LOKI_PASSWORD:
-    loki_auth = (LOKI_USERNAME, LOKI_PASSWORD)
-
-try:
-    handler = logging_loki.LokiHandler(
-        url=LOKI_URL, 
-        tags={"application": "fastapi-backend"},
-        auth=loki_auth,
-        version="1",
-    )
-    logger = logging.getLogger("backend-logger")
-    logger.setLevel(logging.ERROR)
-    logger.addHandler(handler)
-except Exception as e:
-    print(f"Failed to initialize Loki logging: {e}")
-    logger = logging.getLogger("backend-logger")
-    logger.setLevel(logging.ERROR)
-
-# Add console handler so we see logs in terminal too
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-logger.addHandler(console_handler)
-# ---------------------------
-
+# 3. Safe Global State
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-
-# Split URL to easily access base and execute endpoints
-EXECUTOR_HOST = "http://localhost:8000"
+EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
+CHAT_MODEL_NAME = "gemini-3-flash-preview"
+EMBEDDING_MODEL_NAME = "text-embedding-004"
+
+# GLOBAL CLIENTS
+genai_client = None
+index = None
+history_manager = HistoryManager() # Initialize history manager here
 
 if not GOOGLE_API_KEY:
-    raise ValueError("No API key found. Check your .env file.")
+    logger.error("❌ GOOGLE_API_KEY is not set!")
+else:
+    logger.info(f"✅ GOOGLE_API_KEY loaded (...{GOOGLE_API_KEY[-4:]})")
+    genai_client = genai.Client(api_key=GOOGLE_API_KEY)
 
-
-pc = Pinecone(api_key=PINECONE_API_KEY)
-index_name = "math-questions"
-index = pc.Index(index_name)
-
-# RESTORED: User confirmed this was working
-CHAT_MODEL_NAME = "gemini-3-flash-preview"
-EMBEDDING_MODEL_NAME = "hf.co/CompendiumLabs/bge-base-en-v1.5-gguf"
-
-history_manager = HistoryManager()
-
+if not PINECONE_API_KEY:
+    logger.error("❌ PINECONE_API_KEY is not set!")
+else:
+    logger.info(f"✅ PINECONE_API_KEY loaded (...{PINECONE_API_KEY[-4:]})")
+    try:
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        index = pc.Index("math-questions") # Ensure your index name is correct
+    except Exception as e:
+        logger.error(f"❌ Pinecone Init Failed: {e}")
 # --- FastAPI app ---
 app = FastAPI() 
 
@@ -170,32 +159,32 @@ async def retrieve(data: RetrieveRequest):
         raise HTTPException(status_code=400, detail="Query is required")
     
     try:
-        print(f"Embedding query with: {EMBEDDING_MODEL_NAME}")
-        
         try:
-            embed_resp = ollama.embed(model=EMBEDDING_MODEL_NAME, input=query)
-            query_embed = embed_resp["embeddings"][0]
-        except Exception as ollama_error:
-            logger.warning(f"Ollama embedding failed: {str(ollama_error)}", extra={"tags": {"source": "backend"}})
-            print(f"Warning: Ollama embedding failed: {str(ollama_error)}")
+            embed_resp = genai_client.models.embed_content(
+                model=EMBEDDING_MODEL_NAME,
+                contents=query,
+                config=types.EmbedContentConfig(
+                    task_type='RETRIEVAL_QUERY'
+                )
+            )
+            query_embed = embed_resp.embeddings[0].values
+            
+        except Exception as gemini_error:
+            logger.error(f"Gemini embedding failed: {str(gemini_error)}", extra={"tags": {"source": "backend"}})
             return []
         
         try:
             results = index.query(vector=query_embed, top_k=2, include_metadata=True)
         except Exception as pinecone_error:
             logger.error(f"Pinecone query failed: {pinecone_error}", extra={"tags": {"source": "backend"}})
-            raise HTTPException(status_code=503, detail=f"Pinecone query failed: {str(pinecone_error)}")
+            raise HTTPException(status_code=503, detail="Search index unavailable")
 
         res = []
-        fetched_ids = []
         for match in results.get("matches", []):
             metadata_json = match.get("metadata", {}).get("json")
             if metadata_json:
                 try:
                     obj = json.loads(metadata_json)
-                    prob_id = obj.get("id")
-                    if prob_id:
-                        fetched_ids.append(prob_id)
                     res.append({
                         "score": match["score"],
                         "id": obj.get("id"),
@@ -205,20 +194,14 @@ async def retrieve(data: RetrieveRequest):
                     })
                 except json.JSONDecodeError:
                     continue
-        print(f"DEBUG: Fetched Similar Problem IDs: {fetched_ids}")
         return res 
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_msg = f"Retrieval failed: {str(e)}"
-        logger.error(error_msg, extra={"tags": {"source": "backend", "endpoint": "retrieve"}})
-        print(f"Retrieval Error: {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
 
+    except Exception as e:
+        logger.error(f"Retrieval failed: {str(e)}", extra={"tags": {"source": "backend"}})
+        raise HTTPException(status_code=500, detail="Internal server error during retrieval")
 
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
-    # 1. Input Validation
     user_query = data.user_query.strip()
     if not user_query:
         raise HTTPException(status_code=400, detail="User query is required")
@@ -525,18 +508,20 @@ async def clear_chat_history(data: ChatHistoryRequest):
 
 @app.post("/api/log_error")
 async def log_error(data: LogErrorRequest):
-    """Log an error to Loki."""
+    """Log an error to Google Cloud Logging."""
     try:
-        logger.error(
-            data.message, 
-            extra={
-                "tags": {"source": data.source, "user_id": data.user_id or "anonymous"},
-                "stack_trace": data.stack_trace,
-                "additional_data": str(data.additional_data)
-            }
-        )
+        log_data = {
+            "labels": {
+                "source": data.source,
+                "user_id": data.user_id or "anonymous"
+            },
+            "stack_trace": data.stack_trace,
+            "additional_data": data.additional_data
+        }
+
+        logger.error(data.message, extra=log_data)
+        
         return {"status": "logged"}
     except Exception as e:
-        print(f"Failed to log error to Loki: {e}")
-        # Don't fail the request if logging fails, just print to stdout
+        print(f"Failed to log error to Google Cloud: {e}")
         return {"status": "failed_to_log", "error": str(e)}

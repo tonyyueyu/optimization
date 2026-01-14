@@ -9,7 +9,7 @@ import {
     useUser
 } from '@clerk/clerk-react'
 
-const API_BASE = 'http://localhost:5001/api'
+const API_BASE = 'https://backend-service-696616516071.us-west1.run.app/api'
 
 const logErrorToBackend = async (message, stack = null, additionalData = null) => {
     try {
@@ -552,7 +552,6 @@ function App() {
                 setMessages(prev => [...prev, { role: 'assistant', type: 'text', content: errMsg }]);
             }
         } finally {
-            // --- FIX: Remove 'error' usage from here ---
             setIsLoading(false);
             abortControllerRef.current = null;
             setStreamingContent(null);

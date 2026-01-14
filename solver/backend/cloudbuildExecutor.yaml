@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/hippomath/backend-service', '-f', 'Dockerfile.backend', '.']
+images:
+- 'gcr.io/hippomath/backend-service'
