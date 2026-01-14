@@ -23,6 +23,7 @@ from google.genai import types
 # -- CONFIGURATION --
 load_dotenv()
 
+
 # --- LOKI LOGGING SETUP ---
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100/loki/api/v1/push")
 LOKI_USERNAME = os.getenv("LOKI_USERNAME")
@@ -63,15 +64,6 @@ EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 if not GOOGLE_API_KEY:
     raise ValueError("No API key found. Check your .env file.")
 
-# Initialize the Client (New SDK)
-# Note: For Gemini 3 Preview, sometimes 'v1alpha' is safer, but if it worked without it, we keep it as is.
-client = genai.Client(
-    api_key=GOOGLE_API_KEY,
-    http_options=types.HttpOptions(
-        timeout=600.0,  # 600 Seconds (10 minutes)
-        api_version="v1alpha" # often needed for preview models like Gemini 3
-    )
-)
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "math-questions"
@@ -244,26 +236,44 @@ async def solve(data: SolveRequest):
                 threshold=types.HarmBlockThreshold.BLOCK_NONE
             ),
         ]
+        
+        
 
         config = types.GenerateContentConfig(
             temperature=0.1,
-            max_output_tokens=65536,
             response_mime_type="application/json",
-            safety_settings=safety_settings,
             thinking_config=types.ThinkingConfig(
                include_thoughts=False
             )
         )
         
-        # 2. Initialize Chat Session
-        # FIX: Ensure we use the correct async client access
         try:
-            # Check if 'aio' exists, otherwise use client directly (handling version differences)
-            chat_session = client.aio.chats.create(
-                model=CHAT_MODEL_NAME,
-                history=[],
-                config=config 
+            http_opts = types.HttpOptions(
+    timeout=600,  # Try seconds first
+    # api_version='v1beta'  # Uncomment if needed
+)
+            local_client = genai.Client(
+                api_key=GOOGLE_API_KEY,
+                http_options=http_opts
             )
+            print(f"DEBUG: Client type: {type(local_client)}")
+            if hasattr(local_client, '_api_client'):
+                api_client = local_client._api_client
+                print(f"DEBUG: API Client attrs: {[x for x in dir(api_client) if not x.startswith('__')]}")
+                
+                # Check for httpx clients
+                for attr in ['_httpx_client', '_async_httpx_client', 'async_client', '_client', 'httpx_client', '_http_client']:
+                    if hasattr(api_client, attr):
+                        client_obj = getattr(api_client, attr)
+                        print(f"DEBUG: Found {attr}: {client_obj}")
+                        if hasattr(client_obj, 'timeout'):
+                            print(f"DEBUG: {attr}.timeout = {client_obj.timeout}")
+            
+            chat_session = local_client.aio.chats.create(
+                    model=CHAT_MODEL_NAME,
+                    history=[],
+                    config=config 
+                )
         except Exception as e:
             logger.error(f"Failed to initialize AI: {e}", extra={"tags": {"source": "backend", "endpoint": "solve"}})
             yield send_sse_event("error", {"message": f"Failed to initialize AI session: {str(e)}"})
@@ -339,25 +349,22 @@ async def solve(data: SolveRequest):
 
                 accumulated_text = ""
                 try:
-                    # --- FIX START ---
-                    # REMOVE: response_stream = await chat_session.send_message_stream(prompt)
-                    # REASON: send_message_stream IS the async generator. You cannot await it.
+                    print(f"DEBUG: Calling Gemini Stream (Timeout=600s)...")
+                    stream_response = await chat_session.send_message_stream(prompt)
                     
-                    # Create the stream first by AWAITING the method
-                    stream = await chat_session.send_message_stream(prompt)
-
-                    # Then iterate over the stream
-                    async for chunk in stream:
-                        # Verify chunk has text content before accessing
+                    async for chunk in stream_response:
                         if chunk.text:
                             accumulated_text += chunk.text
                             yield send_sse_event("token", {"step_number": step_number, "text": chunk.text})
-                            
-                            # Keep this sleep! It forces the event loop to flush the buffer
-                            await asyncio.sleep(0.01)
-                    # --- FIX END ---
-                            
+                            await asyncio.sleep(0.01) # Keep UI responsive
                 except Exception as ai_err:
+                    logger.error(f"AI Error: {ai_err}")
+                    print(f"\nCRITICAL AI ERROR: {type(ai_err).__name__}")
+                    print(f"Details: {str(ai_err)}")
+                    
+                    # PRINT FULL TRACEBACK to see exactly where it fails
+                    import traceback
+                    traceback.print_exc()
                     print(f"\nCRITICAL AI ERROR: {type(ai_err).__name__}")
                     print(f"Details: {str(ai_err)}") 
                     
