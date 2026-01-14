@@ -3,21 +3,18 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, db
+from dotenv import load_dotenv
 
 load_dotenv()
 
 # -------------------- Firebase Initialization --------------------
 
 def init_firebase():
-    """
-    Initialize Firebase using env vars.
-    This runs once per process.
-    """
     if firebase_admin._apps:
         return
+
 
     cred_dict = {
         "type": os.getenv("FIREBASE_TYPE"),
@@ -34,29 +31,16 @@ def init_firebase():
     }
 
     cred = credentials.Certificate(cred_dict)
-
-    firebase_admin.initialize_app(
-        cred,
-        {"databaseURL": os.getenv("FIREBASE_DB_URL")}
-    )
-
+    firebase_admin.initialize_app(cred, {"databaseURL": os.getenv("FIREBASE_DB_URL")})
 
 init_firebase()
-
 
 # -------------------- History Manager --------------------
 
 class HistoryManager:
     """
-    Firebase structure:
-
-    /chat_history
-        /{user_id}
-            /{chat_id}
-                chat_id
-                user_id
-                message
-                timestamp
+    Manages a nested Firebase structure:
+    Users -> Chat Sessions -> Messages
     """
 
     def __init__(self):
@@ -65,48 +49,57 @@ class HistoryManager:
     def _user_ref(self, user_id: str):
         return self.root.child(user_id)
 
+    def create_chat_session(self, user_id: str, title: str = "New Chat") -> str:
+        """Creates a new chat session container and returns the session_id."""
+        session_id = f"session_{uuid.uuid4().hex[:12]}"
+        session_ref = self._user_ref(user_id).child(session_id)
+        
+        session_ref.child("metadata").set({
+            "title": title,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_updated": datetime.utcnow().isoformat()
+        })
+        return session_id
 
-    def fetch_user_history(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all chat messages for a user.
-        """
+    def add_message(self, user_id: str, session_id: str, role: str, content: str):
+        """Adds a message to a specific chat session."""
+        session_ref = self._user_ref(user_id).child(session_id)
+        
+        message_data = {
+            "role": role, 
+            "content": content,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        session_ref.child("messages").push(message_data)
+        
+        session_ref.child("metadata").update({
+            "last_updated": datetime.utcnow().isoformat()
+        })
+
+    def fetch_user_sessions(self, user_id: str) -> Dict[str, Any]:
+        """Fetches all chat sessions for a user (metadata only)."""
         data = self._user_ref(user_id).get()
+        if not data:
+            return {}
+        
+        return {sid: content.get("metadata") for sid, content in data.items()}
 
+    def fetch_session_messages(self, user_id: str, session_id: str) -> List[Dict[str, Any]]:
+        """Fetches all messages within a specific session, sorted by time."""
+        data = self._user_ref(user_id).child(session_id).child("messages").get()
+        
         if not data:
             return []
 
         messages = list(data.values())
-
         messages.sort(key=lambda x: x.get("timestamp", ""))
-
         return messages
 
-    def save_message(self, user_id: str, message: Dict[str, Any]) -> str:
-        """
-        Save a single chat message.
-        """
-        chat_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
+    def delete_session(self, user_id: str, session_id: str):
+        """Deletes a specific chat session."""
+        self._user_ref(user_id).child(session_id).delete()
 
-        payload = {
-            **message,
-            "chat_id": chat_id,
-            "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-        self._user_ref(user_id).child(chat_id).set(payload)
-
-        return chat_id
-
-    def fetch_chat(self, user_id: str, chat_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Fetch a single chat by ID.
-        """
-        return self._user_ref(user_id).child(chat_id).get()
-
-    def clear_user_history(self, user_id: str) -> bool:
-        """
-        Delete all chat history for a user.
-        """
+    def clear_all_history(self, user_id: str):
+        """Deletes everything for a user."""
         self._user_ref(user_id).delete()
-        return True
