@@ -218,9 +218,7 @@ function App() {
     } catch (e) {
       console.error("Failed to fetch sessions", e);
     }
-    return [];
-    body: formData,
-      });
+    return [];);
 
   if (!response.ok) {
     const errorText = await response.text();
