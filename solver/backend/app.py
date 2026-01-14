@@ -66,15 +66,18 @@ class SolveRequest(BaseModel):
     user_id: Optional[str] = None 
 
 class ChatHistoryRequest(BaseModel):
-    id: str
-    limit: Optional[int] = 50 
-
-class ClearHistoryRequest(BaseModel):
-    id: str
+    user_id: str
+    session_id: Optional[str] = None 
 
 class SaveMessageRequest(BaseModel):
     user_id: str
-    message: Dict[str, Any]
+    session_id: str
+    role: str
+    content: str
+
+class CreateSessionRequest(BaseModel):
+    user_id: str
+    title: Optional[str] = "New Chat"
 
 
 # -------------------- Helper Functions --------------------
@@ -206,11 +209,6 @@ async def solve(data: SolveRequest):
                 history=[],
                 config=config 
             )
-            if data.user_id:
-                try:
-                    history_manager.save_message(data.user_id, {"role": "user", "content": user_query, "type": "text"})
-                except Exception as e:
-                    print(f"Warning: Failed to save user message: {e}")
         except Exception as e:
             yield send_sse_event("error", {"message": f"Failed to initialize AI session: {str(e)}"})
             return
@@ -357,12 +355,6 @@ async def solve(data: SolveRequest):
                 yield send_sse_event("error", {"message": f"Internal Server Error: {str(loop_error)}"})
                 return
 
-        if data.user_id and step_history:
-            try:
-                history_manager.save_message(data.user_id, {"role": "assistant", "type": "steps", "steps": step_history})
-            except Exception:
-                pass
-
         yield send_sse_event("done", {"total_steps": len(step_history), "steps": step_history})
 
     return StreamingResponse(
@@ -375,46 +367,72 @@ async def solve(data: SolveRequest):
         }
     )
 
-# ... (Chat History Endpoints remain unchanged)
-# -------------------- REDIS Chat History Endpoints --------------------
-@app.post("/api/chathistory")
-async def get_chat_history(data: ChatHistoryRequest):
-    """Fetch chat history for a user."""
-    user_id = data.id.strip()
-    
+# -------------------- FirebaseChat History Endpoints --------------------
+@app.post("/api/sessions")
+async def get_user_sessions(data: ChatHistoryRequest):
+    """Fetch all chat session summaries for a user (Sidebar view)."""
+    user_id = data.user_id.strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="User ID is required")
     
     try:
-        messages = history_manager.fetch_user_history(user_id)
+        sessions = history_manager.fetch_user_sessions(user_id)
+        return {"sessions": sessions, "count": len(sessions)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching sessions: {str(e)}")
+
+@app.post("/api/sessions/create")
+async def create_new_session(data: CreateSessionRequest):
+    """Start a new chat session."""
+    try:
+        session_id = history_manager.create_chat_session(data.user_id, data.title)
+        return {"success": True, "session_id": session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+@app.post("/api/chathistory")
+async def get_chat_messages(data: ChatHistoryRequest):
+    """Fetch all messages for a specific session."""
+    user_id = data.user_id.strip()
+    session_id = data.session_id
+    
+    if not user_id or not session_id:
+        raise HTTPException(status_code=400, detail="User ID and Session ID are required")
+    
+    try:
+        messages = history_manager.fetch_session_messages(user_id, session_id)
         return {"history": messages, "count": len(messages)}
     except Exception as e:
-        print(f"Error fetching chat history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/chathistory/clear")
-async def clear_chat_history(data: ClearHistoryRequest):
-    """Clear all chat history for a user."""
-    user_id = data.id.strip()
-    
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User ID is required")
-    
-    try:
-        success = history_manager.clear_user_history(user_id)
-        return {"success": success, "message": "History cleared" if success else "Failed to clear"}
-    except Exception as e:
-        print(f"Error clearing chat history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        raise HTTPException(status_code=500, detail=f"Error fetching messages: {str(e)}")
 
 @app.post("/api/chathistory/save")
 async def save_chat_message(data: SaveMessageRequest):
-    """Manually save a message to history."""
+    """Save a single message (user or assistant) to a session."""
     try:
-        chat_id = history_manager.save_message(data.user_id, data.message)
-        return {"success": True, "chat_id": chat_id}
+        history_manager.add_message(
+            user_id=data.user_id, 
+            session_id=data.session_id, 
+            role=data.role, 
+            content=data.content
+        )
+        return {"success": True}
     except Exception as e:
-        print(f"Error saving message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chathistory/clear")
+async def clear_chat_history(data: ChatHistoryRequest):
+    """Delete a specific session or all history."""
+    user_id = data.user_id.strip()
+    
+    try:
+        if data.session_id:
+            history_manager.delete_session(user_id, data.session_id)
+            message = f"Session {data.session_id} deleted"
+        else:
+            history_manager.clear_all_history(user_id)
+            message = "All history cleared"
+            
+        return {"success": True, "message": message}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
