@@ -229,22 +229,25 @@ async def solve(data: SolveRequest):
 
                 prompt = f"""
                 You are a Math Optimization Code Solver. 
-                
+
                 ROLE & STRATEGY:
                 1. **SYNTAX (Copy this):** Use the REFERENCE EXAMPLES to determine which libraries to use (e.g., Pyomo vs SciPy), how to define variables, and the general code structure.
                 2. **LOGIC (Derive this):** Derive the Objective Function, Constraints, and Data Values STRICTLY from the USER QUERY.
-                
+                3. Core Philosophy: Optimization problems (MIP/LP) are computationally expensive. You prioritize PRACTICAL execution over theoretical perfection. Your code must run within strict time limits and handle infeasibility gracefully.
+
                 CRITICAL WARNINGS:
                 - **Do NOT copy constraints** from the Reference Examples unless they are explicitly stated in the User Query.
                 - **Unit Check:** Analyze the units in the User Query versus the Reference. Scale inputs if necessary.
-                
+                - **SOLVER SAFETY (MANDATORY):** Every solver call MUST have a time limit (e.g., `solver.options['time_limit'] = 30`). You must check `results.solver.termination_condition` for `maxTimeLimit` and handle it without crashing.
+                - **EFFICIENCY:** Avoid 3-index variables (e.g., x[i,j,k]) for Routing problems if a 2-index formulation (x[i,j]) suffices.
+
                 CRITICAL PROTOCOL:
                 1. You are NOT allowed to solve the entire problem at once.
                 2. You must output EXACTLY ONE JSON object representing the immediate next step.
                 3. After generating one JSON object, you must STOP immediately.
-                
+
                 GOAL: Solve this problem: "{user_query}"
-                
+
                 REFERENCE EXAMPLES:
                 1. {data.problem}
                 2. {data.second_problem}
@@ -255,13 +258,14 @@ async def solve(data: SolveRequest):
                 Output of the LAST executed code block: {code_output}
 
                 INSTRUCTION:
-                1. **Step 1 Requirement:** Your first step MUST be "Problem Analysis & Data Setup". Before writing code, explicitly PARAPHRASE the constraints you found in the *User Query*.
+                1. **Step 1 Requirement:** Your first step MUST be "Problem Analysis, Feasibility Check & Data Setup". Explicitly PARAPHRASE constraints and perform "Napkin Math" (e.g. Total Demand vs Total Capacity) to check for obvious infeasibility before coding.
                 2. For subsequent steps, validate the last executed step.
                 3. Update the to-do list.
-                4. Generate the NEXT step.
-                5. Output strict JSON.
-                6. After obtaining the final answer, create an extra step for the summary.
-                7. FINAL STEP INSTRUCTIONS:
+                4. Generate the NEXT numbered step
+                5. If the previous step failed, redo the step BUT STILL ITERATE THE STEP NUMBER.
+                6. Output strict JSON.
+                7. After obtaining the final answer, create an extra step for the summary.
+                8. FINAL STEP INSTRUCTIONS:
                    - You MUST generate one final step to present the solution.
                    - Set "is_final_step": true.
                    - Put the text summary of the answer in "description".
