@@ -212,7 +212,6 @@ function App() {
                 })).sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
 
                 setSessions(sessionsArr);
-                fetchSessionMessages(userId, sessionsArr[0].id);
                 return sessionsArr;
             }
         } catch (e) {
@@ -308,11 +307,7 @@ function App() {
 
     useEffect(() => {
         if (isSignedIn && user?.id) {
-            fetchSessions(user.id).then(sessions => {
-                if (sessions.length > 0 && !currentSessionId) {
-
-                }
-            });
+            fetchSessions(user.id);
         } else {
             setSessions([]);
             setMessages([]);
@@ -543,16 +538,17 @@ function App() {
                     steps: finalExecutionSteps
                 });
                 await saveMessageToHistory(user.id, targetSessionId, 'assistant', payload);
+                await fetchSessionMessages(user.id, targetSessionId);
             }
 
         } catch (error) {
             // Check if it was a user abort (clicking Stop)
             if (error.name !== 'AbortError') {
                 const errMsg = "Error: " + error.message;
-                
+
                 // --- FIX: Log the error HERE, where 'error' is accessible ---
                 logErrorToBackend(`Chat Error: ${error.message}`, error.stack, { userQuery: input });
-                
+
                 setMessages(prev => [...prev, { role: 'assistant', type: 'text', content: errMsg }]);
             }
         } finally {

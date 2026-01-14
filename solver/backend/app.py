@@ -4,12 +4,12 @@ import httpx
 _original_async_client_init = httpx.AsyncClient.__init__
 
 def _patched_async_client_init(self, *args, **kwargs):
-    # Force 600s timeout for ALL async HTTP clients
     kwargs['timeout'] = httpx.Timeout(600.0, connect=60.0, read=600.0, write=60.0, pool=60.0)
     return _original_async_client_init(self, *args, **kwargs)
 
 httpx.AsyncClient.__init__ = _patched_async_client_init
 print("✅ HTTPX patched with 600s timeout")
+
 import asyncio
 import logging
 import logging_loki
@@ -258,9 +258,9 @@ async def solve(data: SolveRequest):
         
         try:
             http_opts = types.HttpOptions(
-    timeout=600,  # Try seconds first
-    # api_version='v1beta'  # Uncomment if needed
-)
+                timeout=60000,  # Try seconds first
+                # api_version='v1beta'  # Uncomment if needed
+            )
             local_client = genai.Client(
                 api_key=GOOGLE_API_KEY,
                 http_options=http_opts
