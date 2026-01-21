@@ -851,7 +851,7 @@ function App() {
                 <div className="app">
                     <div className="chat-container">
                         <div className="empty-state">
-                            <h2>Welcome to Chat Assistant</h2>
+                            <h2>Welcome to HippoFlo</h2>
                             <SignInButton mode="modal">
                                 <button className="login-button" style={{ marginTop: '20px', padding: '12px 24px' }}>Sign in</button>
                             </SignInButton>
@@ -896,7 +896,7 @@ function App() {
                                         <line x1="3" y1="18" x2="21" y2="18"></line>
                                     </svg>
                                 </button>
-                                <h1>{sessions.find(s => s.id === currentSessionId)?.title || "Chat Assistant"}</h1>
+                                <h1>{sessions.find(s => s.id === currentSessionId)?.title || "HippoFlo"}</h1>
                             </div>
                             <div className="header-buttons">
                                 {isLoading && <button onClick={() => abortControllerRef.current?.abort()} className="cancel-button">Stop</button>}
