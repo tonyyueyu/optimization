@@ -9,11 +9,11 @@ import {
     useUser
 } from '@clerk/clerk-react'
 
-const API_BASE = 'https://backend-service-696616516071.us-west1.run.app/api'
+const API_BASE =  "http://localhost:8000";
 
 const logErrorToBackend = async (message, stack = null, additionalData = null) => {
     try {
-        await fetch(`${API_BASE}/log_error`, {
+        await fetch(`${API_BASE}/api/log_error`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -199,7 +199,7 @@ function App() {
 
     const fetchSessions = useCallback(async (userId) => {
         try {
-            const res = await fetch(`${API_BASE}/sessions`, {
+            const res = await fetch(`${API_BASE}/api/sessions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: userId })
@@ -224,7 +224,7 @@ function App() {
         setHistoryLoading(true);
         setHistoryError(null);
         try {
-            const res = await fetch(`${API_BASE}/chathistory`, {
+            const res = await fetch(`${API_BASE}/api/chathistory`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: userId, session_id: sessionId })
@@ -289,7 +289,7 @@ function App() {
 
     const saveMessageToHistory = async (userId, sessionId, role, content) => {
         try {
-            await fetch(`${API_BASE}/chathistory/save`, {
+            await fetch(`${API_BASE}/api/chathistory/save`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -339,7 +339,7 @@ function App() {
         if (!user?.id || !sessionToDelete) return;
 
         try {
-            await fetch(`${API_BASE}/chathistory/clear`, {
+            await fetch(`${API_BASE}/api/chathistory/clear`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -370,7 +370,7 @@ function App() {
         formData.append('user_id', user.id);
 
         try {
-            const response = await fetch(`${API_BASE}/upload`, {
+            const response = await fetch(`${API_BASE}/api/upload`, {
                 method: 'POST',
                 body: formData,
             });
@@ -438,7 +438,7 @@ function App() {
         let targetSessionId = currentSessionId;
         if (!targetSessionId) {
             try {
-                const createRes = await fetch(`${API_BASE}/sessions/create`, {
+                const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user.id, title: truncateText(userMessageText, 30) })
@@ -481,7 +481,7 @@ function App() {
         abortControllerRef.current = new AbortController();
 
         try {
-            const retrieveRes = await fetch(`${API_BASE}/retrieve`, {
+            const retrieveRes = await fetch(`${API_BASE}/api/retrieve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: userMessage.content, top_n: 2 }),
@@ -497,7 +497,7 @@ function App() {
 
             setStreamingContent(prev => ({ ...prev, status: 'solving' }));
 
-            const response = await fetch(`${API_BASE}/solve`, {
+            const response = await fetch(`${API_BASE}/api/solve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

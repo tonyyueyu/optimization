@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # ----------------------------
+  # 1. The Main Backend (API/DB)
+  # ----------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.backend
+    container_name: local-backend
+    # ✅ FIX 1: Run commands from inside the backend folder
+    working_dir: /app/backend
+    ports:
+      - "8000:8080"
+    environment:
+      - PORT=8080
+      - EXECUTOR_HOST=http://executor:8000
+
+  # ----------------------------
+  # 2. The Math Executor (Heavy Lifter)
+  # ----------------------------
+  executor:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.executor
+    container_name: local-executor
+    # ✅ FIX 2: Run commands from inside the backend folder
+    working_dir: /app/backend
+    ports:
+      - "8001:8000"
+    volumes:
+      # ✅ FIX 3: Update upload path to match the new working directory
+      # Code does os.getcwd() + "uploads", so it writes to /app/backend/uploads
+      - ./uploads:/app/backend/uploads
+    environment:
+      - PORT=8000
+
+  # ----------------------------
+  # 3. The Vite Frontend
+  # ----------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: local-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+      - executor

@@ -1,51 +1,9 @@
-#!/usr/bin/env bash
-set -e
+#!/bin/bash
 
-backendPath="./backend"
+# Stop any running containers
+# (Using "docker compose" with a space)
+docker compose down
 
-echo "Building Docker image for math-executor..."
-# We keep the build step to ensure the container has the latest files
-docker build -t math-executor "$backendPath"
-
-echo "Restarting math-executor container..."
-docker rm -f math-executor 2>/dev/null || true
-
-# REMOVED: -v volume mount (Fixes permission/upload errors)
-docker run -d \
-  --name math-executor \
-  -p 8000:8000 \
-  math-executor
-
-# Start Monitoring
-echo "Starting Monitoring (Loki + Grafana)..."
-# Check for 'docker compose' or 'docker-compose'
-if docker compose version >/dev/null 2>&1; then
-    docker compose -f monitoring/docker-compose.yml up -d
-elif docker-compose version >/dev/null 2>&1; then
-    docker-compose -f monitoring/docker-compose.yml up -d
-else
-    echo "WARNING: neither 'docker compose' nor 'docker-compose' found. Monitoring will not start."
-fi
-
-echo "Starting FastAPI backend..."
-cd "$backendPath"
-python3 -m uvicorn app:app --reload --port 5001 &
-BACKEND_PID=$!
-cd ..
-
-echo "Starting frontend..."
-npm run dev &
-FRONTEND_PID=$!
-
-echo ""
-echo "======================================"
-echo "Backend   → http://localhost:5001"
-echo "Executor  → http://localhost:8000"
-echo "Frontend  → http://localhost:5173"
-echo "Grafana   → http://localhost:3000 (User/Pass: admin/admin)"
-echo "======================================"
-
-# TIP: If docker fails, this command prints why:
-# docker logs math-executor
-
-wait
+# Build and start everything
+# --build forces a rebuild of the images
+docker compose up --build

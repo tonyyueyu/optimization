@@ -1,0 +1,20 @@
+# Ignore git files
+.git
+.gitignore
+
+# Ignore VS Code settings and databases (The culprit!)
+.vscode
+*.vc.db
+
+# Ignore local dependencies (let Docker install them fresh)
+node_modules
+**/node_modules
+__pycache__
+*.pyc
+venv
+.env
+
+# Ignore build artifacts
+dist
+build
+coverage
