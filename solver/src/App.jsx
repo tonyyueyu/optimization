@@ -626,12 +626,33 @@ function App() {
         }
     };
 
+    // Collapsible code block component
+    const CollapsibleCode = ({ code }) => {
+        const [open, setOpen] = useState(false);
+        return (
+            <div className={`code-block ${open ? 'open' : 'collapsed'}`}>
+                <div
+                    className="code-header"
+                    onClick={() => setOpen(!open)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') setOpen(!open); }}
+                    aria-expanded={open}
+                >
+                    <div className={`chev ${open ? 'open' : ''}`} />
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Code</div>
+                </div>
+                <pre className="code-display"><code>{code}</code></pre>
+            </div>
+        );
+    };
+
     const renderJupyterCell = (cell, idx) => (
         <div key={idx} className="notebook-cell">
             {cell.code && (
                 <div className="cell-wrapper">
                     <div className="cell-header-badge">Input [{cell.stepNumber}]</div>
-                    <pre className="code-display"><code>{cell.code}</code></pre>
+                    <CollapsibleCode code={cell.code} />
                 </div>
             )}
             {(cell.output || cell.error) && (
