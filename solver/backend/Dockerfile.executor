@@ -1,33 +1,24 @@
-# Use Micromamba for robust binary management (CadQuery + Solvers)
 FROM mambaorg/micromamba:latest
 
-# 1. Copy the environment file
-COPY --chown=$MAMBA_USER:$MAMBA_USER backend/environment.yml /tmp/env.yml
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yml
 
-# 2. Install dependencies
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
 
-# 3. ACTIVATE the environment for BUILD steps (like ipykernel install)
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
+
+USER root
+RUN mkdir -p /app/uploads && chown -R $MAMBA_USER:$MAMBA_USER /app
+USER $MAMBA_USER
 
 WORKDIR /app
 
-# 4. Register the kernel
 RUN python -m ipykernel install --user --name=math_opt_kernel
 
-# 5. Copy your backend code
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-# 6. Expose the executor port
 EXPOSE 8000
 
-# --- THE FIX IS HERE ---
-# Explicitly force the environment bin folder into the PATH.
-# In the micromamba image, the base env is usually at /opt/conda.
-# We use the $MAMBA_ROOT_PREFIX variable provided by the base image.
 ENV PATH="$MAMBA_ROOT_PREFIX/bin:$PATH"
 
-# 7. Start the executor
-# Now 'python' and 'highs' will be found automatically.
 CMD ["python", "executor.py"]

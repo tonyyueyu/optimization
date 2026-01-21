@@ -1,0 +1,14 @@
+flask
+flask-cors
+fastapi
+uvicorn[standard]
+requests
+google-genai          
+pinecone
+python-dotenv
+redis
+pydantic
+python-multipart
+json_repair
+firebase-admin
+google-cloud-logging
