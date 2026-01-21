@@ -48,9 +48,7 @@ logger = setup_logger()
 # 3. Safe Global State
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-# EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
-# EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
-EXECUTOR_HOST = os.getenv("EXECUTOR_HOST", "http://executor:8000")
+EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "text-embedding-004"

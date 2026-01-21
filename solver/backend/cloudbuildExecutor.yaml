@@ -1,5 +1,11 @@
 steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/hippomath/backend-service', '-f', 'Dockerfile.backend', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service' 
+      - '-f'
+      - 'Dockerfile.executor'
+      - '.'
 images:
-- 'gcr.io/hippomath/backend-service'
+  - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service'

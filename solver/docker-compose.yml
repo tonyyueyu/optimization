@@ -29,10 +29,6 @@ services:
     working_dir: /app/backend
     ports:
       - "8001:8000"
-    volumes:
-      # ✅ FIX 3: Update upload path to match the new working directory
-      # Code does os.getcwd() + "uploads", so it writes to /app/backend/uploads
-      - ./uploads:/app/backend/uploads
     environment:
       - PORT=8000
 
