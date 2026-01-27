@@ -107,6 +107,27 @@
     transform: translateY(-1px);
   }
 
+  .discord-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: rgba(88, 101, 242, 0.1);
+    color: #5865f2;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    text-decoration: none;
+    border: 1px solid rgba(88, 101, 242, 0.2);
+  }
+
+  .discord-button:hover {
+    background: rgba(88, 101, 242, 0.2);
+    transform: translateY(-1px);
+    border-color: rgba(88, 101, 242, 0.4);
+  }
+
   /* --- Main Workspace --- */
   .messages-container {
     flex: 1;
