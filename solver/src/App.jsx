@@ -559,7 +559,8 @@ function App() {
                     problem: first,
                     second_problem: second,
                     user_query: finalQuery,
-                    user_id: user?.id || "anonymous"
+                    user_id: user?.id || "anonymous",
+                    session_id: targetSessionId
                 }),
                 signal: abortControllerRef.current.signal
             });

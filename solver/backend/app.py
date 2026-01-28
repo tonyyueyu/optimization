@@ -95,6 +95,7 @@ class SolveRequest(BaseModel):
     second_problem: str = ""
     user_query: str
     user_id: Optional[str] = None 
+    session_id: Optional[str] = None 
 
 class ChatHistoryRequest(BaseModel):
     user_id: str
@@ -283,8 +284,36 @@ async def solve(data: SolveRequest):
             try:
                 yield send_sse_event("step_start", {"step_number": step_number, "status": "generating"})
 
+                chat_context = ""
+                if data.user_id and data.session_id:
+                    try:
+                        history_msgs = history_manager.fetch_session_messages(data.user_id, data.session_id)
+                        if history_msgs:
+                            formatted_msgs = []
+                            for m in history_msgs[-10:]:
+                                role = m['role'].upper()
+                                content = m['content']
+                                if m['role'] == 'assistant':
+                                    try:
+                                        clean_content = content.strip()
+                                        if clean_content.startswith('{') or clean_content.startswith('['):
+                                            data_obj = json.loads(clean_content)
+                                            if isinstance(data_obj, dict) and 'steps' in data_obj:
+                                                steps_desc = [s.get('description', '') for s in data_obj['steps']]
+                                                content = "Solution Steps:\n" + "\n".join(f"- {d}" for d in steps_desc if d)
+                                    except:
+                                        pass # Keep original content if parse fails
+                                formatted_msgs.append(f"{role}: {content}")
+                            
+                            formatted_history = "\n".join(formatted_msgs)
+                            chat_context = f"PREVIOUS CONVERSATION HISTORY:\n{formatted_history}\n"
+                    except Exception as e:
+                        logger.error(f"Failed to load history for prompt: {e}")
+
                 prompt = f"""
                 You are a Math Optimization Code Solver. 
+                
+                {chat_context}
 
                 ROLE & STRATEGY:
                 1. **SYNTAX (Copy this):** Use the REFERENCE EXAMPLES to determine which libraries to use (e.g., Pyomo vs SciPy), how to define variables, and the general code structure.
