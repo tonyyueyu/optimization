@@ -9,7 +9,7 @@ import {
     useUser
 } from '@clerk/clerk-react'
 
-const API_BASE =  "https://backend-service-696616516071.us-west1.run.app";
+const API_BASE = "https://backend-service-696616516071.us-west1.run.app" || "http://localhost:8000";
 
 const logErrorToBackend = async (message, stack = null, additionalData = null) => {
     try {
@@ -140,8 +140,62 @@ const Sidebar = ({
     );
 };
 
+const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent }) => {
+    const [isDragging, setIsDragging] = useState(false);
+    const containerRef = useRef(null);
+
+    const onMouseDown = (e) => {
+        e.preventDefault();
+        setIsDragging(true);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        // Add a class to body to force cursor everywhere
+        document.body.classList.add('resizing');
+    };
+
+    useEffect(() => {
+        const onMouseMove = (e) => {
+            if (!isDragging || !containerRef.current) return;
+            const containerRect = containerRef.current.getBoundingClientRect();
+            let newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+            if (newWidth < 20) newWidth = 20;
+            if (newWidth > 80) newWidth = 80;
+            setWidthPercent(newWidth);
+        };
+
+        const onMouseUp = () => {
+            setIsDragging(false);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.body.classList.remove('resizing');
+        };
+
+        if (isDragging) {
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+    }, [isDragging, setWidthPercent]);
+
+    return (
+        <div className="two-column-layout" ref={containerRef}>
+            <div className="steps-column" style={{ width: `${widthPercent}%` }}>
+                {left}
+            </div>
+            <div className="resizer" onMouseDown={onMouseDown} />
+            <div className="code-column" style={{ flex: 1 }}>
+                {right}
+            </div>
+        </div>
+    );
+};
+
 function App() {
     const [messages, setMessages] = useState([])
+    const [leftPanelWidth, setLeftPanelWidth] = useState(60);
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
@@ -363,11 +417,11 @@ function App() {
 
     // --- FILE UPLOAD ---
     const handleFileUpload = async (file) => {
-        if (!file || !user?.id) return;
+        if (!file) return;
         setIsUploading(true);
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('user_id', user.id);
+        formData.append('user_id', user?.id || 'anonymous');
 
         try {
             const response = await fetch(`${API_BASE}/api/upload`, {
@@ -428,15 +482,14 @@ function App() {
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
-        if (!isSignedIn || !user?.id) {
-            alert('Please sign in to continue.');
-            return;
-        }
+
+        // Allow anonymous users
+        const isAnonymous = !isSignedIn || !user?.id;
 
         const userMessageText = input.trim();
 
         let targetSessionId = currentSessionId;
-        if (!targetSessionId) {
+        if (!isAnonymous && !targetSessionId) {
             try {
                 const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
                     method: 'POST',
@@ -469,7 +522,9 @@ function App() {
         setUploadedFileName(null);
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-        saveMessageToHistory(user.id, targetSessionId, 'user', finalQuery);
+        if (!isAnonymous && targetSessionId) {
+            saveMessageToHistory(user.id, targetSessionId, 'user', finalQuery);
+        }
 
         setIsLoading(true);
         setStreamingContent({
@@ -504,7 +559,7 @@ function App() {
                     problem: first,
                     second_problem: second,
                     user_query: finalQuery,
-                    user_id: user.id
+                    user_id: user?.id || "anonymous"
                 }),
                 signal: abortControllerRef.current.signal
             });
@@ -533,12 +588,36 @@ function App() {
             }
 
             if (finalExecutionSteps.length > 0) {
-                const payload = JSON.stringify({
-                    type: 'steps',
-                    steps: finalExecutionSteps
-                });
-                await saveMessageToHistory(user.id, targetSessionId, 'assistant', payload);
-                await fetchSessionMessages(user.id, targetSessionId);
+                if (!isAnonymous && targetSessionId) {
+                    const payload = JSON.stringify({
+                        type: 'steps',
+                        steps: finalExecutionSteps
+                    });
+                    await saveMessageToHistory(user.id, targetSessionId, 'assistant', payload);
+                    await fetchSessionMessages(user.id, targetSessionId);
+                } else {
+                    // For anonymous users, append message to local state manually
+                    const lastStep = finalExecutionSteps[finalExecutionSteps.length - 1];
+                    const summary = lastStep?.description || '';
+
+                    const newMsg = {
+                        role: 'assistant',
+                        type: 'steps',
+                        title: 'Solution Steps',
+                        summary: summary,
+                        steps: finalExecutionSteps.map((step, idx) => ({
+                            number: step.step_id || idx + 1,
+                            title: `Step ${step.step_id || idx + 1}`,
+                            description: step.description || '',
+                            code: step.code || '',
+                            language: 'python',
+                            output: step.output || '',
+                            error: step.error || '',
+                            plots: step.plots || []
+                        }))
+                    };
+                    setMessages(prev => [...prev, newMsg]);
+                }
             }
 
         } catch (error) {
@@ -678,8 +757,10 @@ function App() {
         return (
             <div className="message assistant">
                 <div className="message-content">
-                    <div className="two-column-layout">
-                        <div className="steps-column">
+                    <ResizableSplitLayout
+                        widthPercent={leftPanelWidth}
+                        setWidthPercent={setLeftPanelWidth}
+                        left={<>
                             <div className="steps-header">
                                 <div className="steps-title">
                                     <div className="pulse-ring"></div>
@@ -727,9 +808,8 @@ function App() {
                                     </div>
                                 )}
                             </div>
-                        </div>
-
-                        <div className="code-column">
+                        </>}
+                        right={<>
                             <div className="jupyter-header">
                                 <div className="window-controls">
                                     <div className="window-dot dot-red"></div>
@@ -748,8 +828,8 @@ function App() {
                                     </div>
                                 )}
                             </div>
-                        </div>
-                    </div>
+                        </>}
+                    />
                 </div>
             </div>
         );
@@ -776,8 +856,10 @@ function App() {
                     </div>
                 )}
 
-                <div className="two-column-layout">
-                    <div className="steps-column">
+                <ResizableSplitLayout
+                    widthPercent={leftPanelWidth}
+                    setWidthPercent={setLeftPanelWidth}
+                    left={<>
                         <div className="steps-header">
                             <div className="steps-title">
                                 <span style={{ fontSize: '1.2rem' }}>🏁</span>
@@ -809,9 +891,8 @@ function App() {
                                 );
                             })}
                         </div>
-                    </div>
-
-                    <div className="code-column">
+                    </>}
+                    right={<>
                         <div className="jupyter-header">
                             <div className="window-controls">
                                 <div className="window-dot dot-red"></div>
@@ -827,8 +908,8 @@ function App() {
                                 <div style={{ padding: '32px', color: 'var(--text-muted)', textAlign: 'center' }}>No code steps in this solution.</div>
                             )}
                         </div>
-                    </div>
-                </div>
+                    </>}
+                />
             </div>
         );
     }
@@ -846,142 +927,140 @@ function App() {
     if (!isLoaded) return <div className="app loading">Loading...</div>;
 
     return (
-        <>
-            <SignedOut>
-                <div className="app">
-                    <div className="chat-container">
-                        <div className="empty-state">
-                            <h2>Welcome to HippoFlo</h2>
-                            <SignInButton mode="modal">
-                                <button className="login-button" style={{ marginTop: '20px', padding: '12px 24px' }}>Sign in</button>
-                            </SignInButton>
+
+        <div className="app">
+            <div className="app-layout" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+                {isDragging && <div className="drag-overlay" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px' }}>Drop file to upload</div>}
+
+                <ConfirmationModal
+                    isOpen={isDeleteModalOpen}
+                    onClose={() => setIsDeleteModalOpen(false)}
+                    onConfirm={confirmDeleteSession}
+                    title="Delete Chat Session"
+                    message="Are you sure you want to delete this chat? This action cannot be undone."
+                />
+
+                <Sidebar
+                    sessions={sessions}
+                    currentSessionId={currentSessionId}
+                    onSelectSession={setCurrentSessionId}
+                    onCreateSession={handleCreateSession}
+                    onDeleteSession={handleDeleteSession}
+                    isLoading={isLoading}
+                    isOpen={isSidebarOpen}
+                />
+
+                <div className="chat-container">
+                    <div className="chat-header">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button
+                                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                                className="header-toggle-btn"
+                                title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
+                            >
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                                </svg>
+                            </button>
+                            <h1>{sessions.find(s => s.id === currentSessionId)?.title || "HippoFlo"}</h1>
                         </div>
-                    </div>
-                </div>
-            </SignedOut>
-
-            <SignedIn>
-                <div className="app-layout" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-                    {isDragging && <div className="drag-overlay" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px' }}>Drop file to upload</div>}
-
-                    <ConfirmationModal
-                        isOpen={isDeleteModalOpen}
-                        onClose={() => setIsDeleteModalOpen(false)}
-                        onConfirm={confirmDeleteSession}
-                        title="Delete Chat Session"
-                        message="Are you sure you want to delete this chat? This action cannot be undone."
-                    />
-
-                    <Sidebar
-                        sessions={sessions}
-                        currentSessionId={currentSessionId}
-                        onSelectSession={setCurrentSessionId}
-                        onCreateSession={handleCreateSession}
-                        onDeleteSession={handleDeleteSession}
-                        isLoading={isLoading}
-                        isOpen={isSidebarOpen}
-                    />
-
-                    <div className="chat-container">
-                        <div className="chat-header">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <button
-                                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                                    className="header-toggle-btn"
-                                    title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
-                                >
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                                        <line x1="3" y1="18" x2="21" y2="18"></line>
-                                    </svg>
-                                </button>
-                                <h1>{sessions.find(s => s.id === currentSessionId)?.title || "HippoFlo"}</h1>
-                            </div>
-                            <div className="header-buttons">
-                                {isLoading && <button onClick={() => abortControllerRef.current?.abort()} className="cancel-button">Stop</button>}
-                                <a href="https://discord.gg/7P2QbmQx" target="_blank" rel="noopener noreferrer" className="discord-button">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515a.074.074 0 00-.079.037c-.211.375-.444.864-.607 1.25a18.27 18.27 0 00-5.487 0c-.163-.386-.395-.875-.607-1.25a.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.042-.106c-.658-.249-1.282-.578-1.855-.953a.077.077 0 00-.009-.128c.124-.093.248-.19.368-.287a.074.074 0 00.076-.01c3.89 1.817 8.109 1.817 11.967 0a.075.075 0 00.076.009c.12.098.244.195.369.288a.077.077 0 00-.008.129c-.574.375-1.198.704-1.856.953a.077.077 0 00-.041.107c.352.699.764 1.364 1.225 1.994a.076.076 0 00.084.028 19.963 19.963 0 006.002-3.03.077.077 0 00.032-.057c.5-4.788-.838-8.95-3.549-12.676a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-.965-2.157-2.156c0-1.193.955-2.157 2.157-2.157c1.202 0 2.157.964 2.157 2.157c0 1.19-.955 2.157-2.157 2.157zm7.975 0c-1.183 0-2.157-.965-2.157-2.156c0-1.193.955-2.157 2.157-2.157c1.202 0 2.157.964 2.157 2.157c0 1.19-.955 2.157-2.157 2.157z"/>
-                                    </svg>
-                                </a>
+                        <div className="header-buttons">
+                            {isLoading && <button onClick={() => abortControllerRef.current?.abort()} className="cancel-button">Stop</button>}
+                            <a href="https://discord.gg/7P2QbmQx" target="_blank" rel="noopener noreferrer" className="discord-button">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515a.074.074 0 00-.079.037c-.211.375-.444.864-.607 1.25a18.27 18.27 0 00-5.487 0c-.163-.386-.395-.875-.607-1.25a.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.042-.106c-.658-.249-1.282-.578-1.855-.953a.077.077 0 00-.009-.128c.124-.093.248-.19.368-.287a.074.074 0 00.076-.01c3.89 1.817 8.109 1.817 11.967 0a.075.075 0 00.076.009c.12.098.244.195.369.288a.077.077 0 00-.008.129c-.574.375-1.198.704-1.856.953a.077.077 0 00-.041.107c.352.699.764 1.364 1.225 1.994a.076.076 0 00.084.028 19.963 19.963 0 006.002-3.03.077.077 0 00.032-.057c.5-4.788-.838-8.95-3.549-12.676a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-.965-2.157-2.156c0-1.193.955-2.157 2.157-2.157c1.202 0 2.157.964 2.157 2.157c0 1.19-.955 2.157-2.157 2.157zm7.975 0c-1.183 0-2.157-.965-2.157-2.156c0-1.193.955-2.157 2.157-2.157c1.202 0 2.157.964 2.157 2.157c0 1.19-.955 2.157-2.157 2.157z" />
+                                </svg>
+                            </a>
+                            <SignedIn>
                                 <UserButton />
+                            </SignedIn>
+                            <SignedOut>
+                                <SignInButton mode="modal">
+                                    <button className="new-chat-btn" style={{ width: 'auto', padding: '8px 16px', justifyContent: 'center', background: 'var(--accent-primary)', border: 'none' }}>Sign In</button>
+                                </SignInButton>
+                            </SignedOut>
+                        </div>
+                    </div>
+
+                    <div className="messages-container">
+                        {!currentSessionId && messages.length === 0 ? (
+                            <div className="empty-state">
+                                <h2>How can I help you?</h2>
+                                <p>Start a new chat or begin typing below.</p>
+                                <SignedOut>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '20px', fontStyle: 'italic', background: 'rgba(255,255,255,0.05)', padding: '10px 20px', borderRadius: '20px' }}>
+                                        Note: Chats start in anonymous mode. Sign in to save your history.
+                                    </p>
+                                </SignedOut>
                             </div>
-                        </div>
+                        ) : (
+                            <>
+                                {messages.length === 0 && !isLoading && !streamingContent && (
+                                    <div className="empty-state" style={{ minHeight: '200px' }}>
+                                        <p>No messages yet.</p>
+                                    </div>
+                                )}
 
-                        <div className="messages-container">
-                            {!currentSessionId && messages.length === 0 ? (
-                                <div className="empty-state">
-                                    <h2>How can I help you?</h2>
-                                    <p>Start a new chat or select an existing one.</p>
-                                </div>
-                            ) : (
-                                <>
-                                    {messages.length === 0 && !isLoading && !streamingContent && (
-                                        <div className="empty-state" style={{ minHeight: '200px' }}>
-                                            <p>No messages yet.</p>
-                                        </div>
-                                    )}
+                                {messages.map((message, index) => (
+                                    <div key={index} className={`message ${message.role}`}>
+                                        <div className="message-content">{renderMessageContent(message)}</div>
+                                    </div>
+                                ))}
 
-                                    {messages.map((message, index) => (
-                                        <div key={index} className={`message ${message.role}`}>
-                                            <div className="message-content">{renderMessageContent(message)}</div>
-                                        </div>
-                                    ))}
+                                {isLoading && streamingContent && renderStreamingContent()}
+                            </>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </div>
 
-                                    {isLoading && streamingContent && renderStreamingContent()}
-                                </>
-                            )}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        <div className="input-container">
-                            {uploadedFileName && (
-                                <div className="file-attachment-indicator">
-                                    <span>📄 {uploadedFileName}</span>
-                                    <button className="remove-file-btn" onClick={() => { setUploadedFileName(null); setFileContext(null); }}>×</button>
-                                </div>
-                            )}
-                            <div className="input-wrapper" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-                                <button className="upload-button" onClick={() => fileInputRef.current?.click()} title="Upload File">
-                                    {isUploading ? (
-                                        <div className="spinner"></div>
-                                    ) : (
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                                        </svg>
-                                    )}
-                                </button>
-                                <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
-
-                                <textarea
-                                    ref={textareaRef}
-                                    value={input}
-                                    onChange={e => setInput(e.target.value)}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSend();
-                                        }
-                                    }}
-                                    placeholder="Message..."
-                                    rows={1}
-                                    className="chat-input"
-                                    style={{ flex: 1, maxHeight: '200px', resize: 'none', background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '10px' }}
-                                />
-
-                                <button onClick={handleSend} disabled={isLoading || !input.trim()} className="send-button">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <line x1="22" y1="2" x2="11" y2="13"></line>
-                                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    <div className="input-container">
+                        {uploadedFileName && (
+                            <div className="file-attachment-indicator">
+                                <span>📄 {uploadedFileName}</span>
+                                <button className="remove-file-btn" onClick={() => { setUploadedFileName(null); setFileContext(null); }}>×</button>
+                            </div>
+                        )}
+                        <div className="input-wrapper" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+                            <button className="upload-button" onClick={() => fileInputRef.current?.click()} title="Upload File">
+                                {isUploading ? (
+                                    <div className="spinner"></div>
+                                ) : (
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                                     </svg>
-                                </button>
-                            </div>
+                                )}
+                            </button>
+                            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+
+                            <textarea
+                                ref={textareaRef}
+                                value={input}
+                                onChange={e => setInput(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
+                                placeholder="Message..."
+                                rows={1}
+                                className="chat-input"
+                                style={{ flex: 1, maxHeight: '200px', resize: 'none', background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '10px' }}
+                            />
+
+                            <button onClick={handleSend} disabled={isLoading || !input.trim()} className="send-button">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 </div>
-            </SignedIn>
-        </>
+            </div>
+        </div>
     )
 }
 
