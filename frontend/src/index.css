@@ -1,0 +1,543 @@
+/* Basic Reset / Defaults */
+html {
+  height: 100%; /* Ensure html takes full height */
+}
+
+body {
+  margin: 0;
+  /* Use a system font stack for a native feel */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  background-color: #ffffff; /* White background like Messages */
+  color: #333;
+  height: 100%; /* Ensure body takes full height */
+}
+
+/* Main App Layout */
+.app-container {
+  display: flex;
+  /* height: 100%; */ /* Use percentage height instead of vh */
+  height: 100dvh; /* Alternative: Use dynamic viewport height */
+  /* Remove app-level padding if panels handle their own */
+  /* padding: 10px; */ 
+  box-sizing: border-box;
+}
+
+/* Panel Styling */
+.chat-panel,
+.code-panel {
+  flex: 1; /* Make panels share space equally */
+  padding: 15px; /* Adjust panel padding */
+  overflow-y: auto; /* Allow scrolling if content overflows */
+  border-left: 1px solid #ccc; /* Separator */
+  box-sizing: border-box;
+  display: flex; /* Ensure panels use flex */
+  flex-direction: column; /* Stack content vertically */
+  height: 100%; /* Ensure panels take full height of container */
+}
+
+.chat-panel {
+  border-left: none;
+  /* display: flex; Already set above */
+  /* flex-direction: column; Already set above */
+  background-color: #ffffff; /* Ensure chat panel is white */
+}
+
+/* Remove code panel border if chat is first */
+.code-panel {
+  border-left: 1px solid #D1D1D6; /* Slightly softer border color */
+}
+
+/* Shared styles for panel headers */
+.panel-header {
+  display: flex; /* Keep flexbox */
+  justify-content: space-between; /* Keep space-between */
+  align-items: center; /* Keep align-items */
+  padding-bottom: 10px;
+  margin-bottom: 15px; /* Add back margin if needed */
+  border-bottom: 1px solid #EAEAEA; 
+  flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+/* Style h2 within the header */
+.panel-header h2 {
+  margin: 0;
+  padding: 0;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #555;
+  flex-grow: 1; /* Allow title to grow */
+}
+
+/* Container for header menu buttons */
+.header-menus {
+  display: flex;
+  gap: 8px; /* Space between menu buttons */
+}
+
+/* Container for the menu button and dropdown */
+.menu-container {
+  position: relative; /* Context for the absolute positioned dropdown */
+  flex-shrink: 0;
+}
+
+/* Menu Trigger Button */
+.menu-button {
+  background: none;
+  border: none;
+  padding: 4px 8px; /* Increase clickable area */
+  margin: -4px -8px; /* Counteract padding visually */
+  cursor: pointer;
+  /* font-size: 1.5em; */ /* Removed: Size controlled by icon component now */
+  line-height: 1;
+  color: #666;
+  opacity: 0.8;
+  /* Add display flex to help center the SVG icon if needed */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-button:hover {
+  opacity: 1;
+  color: #000;
+}
+
+/* Dropdown Menu Styling */
+.dropdown-menu {
+  position: absolute;
+  top: 100%; /* Position below the button */
+  right: 0; /* Align to the right */
+  background-color: white;
+  border-radius: 12px; /* Match reference image */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); /* Softer shadow */
+  padding: 8px; /* Padding inside the menu */
+  min-width: 180px; /* Minimum width */
+  z-index: 100; /* Ensure it's above other content */
+  border: 1px solid rgba(0, 0, 0, 0.05); /* Subtle border */
+}
+
+/* Specialized style for the kernel selection menu */
+.kernel-menu {
+  min-width: 120px; /* Smaller width than standard dropdown */
+}
+
+.dropdown-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dropdown-menu li {
+  margin: 0;
+  padding: 0;
+}
+
+/* Style menu items (buttons and links) */
+.dropdown-menu li button,
+.dropdown-menu li a {
+  display: flex; 
+  align-items: center;
+  gap: 8px; 
+  width: 100%;
+  box-sizing: border-box; /* Add box-sizing */
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 12px; /* Padding for items */
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.9em;
+  color: #333;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 6px; /* Slightly rounded item hover */
+  transition: background-color 0.1s ease;
+}
+
+.dropdown-menu li button:hover,
+.dropdown-menu li a:hover {
+  background-color: #f0f0f0; /* Hover background */
+  color: #000;
+}
+
+.menu-icon {
+  /* display: inline-block; */ /* Changed to inline-flex */
+  display: inline-flex;  /* Use flex to help center content */
+  align-items: center;    /* Vertically center content (the icon) */
+  justify-content: center; /* Horizontally center content */
+  width: 20px; /* Slightly increase width for potentially wider icons */
+  height: 1.1em; /* Match approximate text height */
+  line-height: 1; /* Prevent extra line height issues */
+  text-align: center;
+  /* font-size: 1.1em; */ /* Removed - control icon size directly if needed */
+  /* Ensure icon doesn't shrink */
+  flex-shrink: 0;
+}
+
+/* --- Chat Panel Messages --- */
+
+.chat-panel .message-list {
+  flex-grow: 1; /* Allow message list to take up available space */
+  overflow-y: auto;
+  margin-bottom: 15px; /* Space above input */
+  padding: 10px 5px; /* Adjust padding */
+  display: flex; /* Use flexbox for alignment */
+  flex-direction: column; /* Stack messages vertically */
+  gap: 8px; /* Space between message bubbles */
+  border: none; /* Remove border */
+}
+
+/* Individual message bubbles */
+.message-list .message {
+  padding: 9px 14px; /* Adjust padding for bubble feel */
+  border-radius: 18px; /* More rounded corners */
+  line-height: 1.4;
+  max-width: 75%; /* Limit bubble width */
+  word-wrap: break-word;
+  /* Remove bottom margin, use gap in parent instead */
+  margin-bottom: 0; 
+}
+
+.message-list .message.user {
+  background-color: #007AFF; /* Standard Apple blue */
+  color: white;
+  align-self: flex-end; /* Align bubble to the right */
+  /* Remove margin-left */
+  margin-left: 0;
+}
+
+.message-list .message.assistant {
+  background-color: #E5E5EA; /* Standard light grey */
+  color: black;
+  align-self: flex-start; /* Align bubble to the left */
+  /* Remove margin-right */
+  margin-right: 0;
+}
+
+/* Reset margins for paragraphs inside assistant messages generated by Markdown */
+.message-list .message.assistant p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+
+/* --- Chat Input Area --- */
+
+.chat-panel .input-area {
+  flex-shrink: 0; /* Prevent input area from shrinking */
+  display: flex;
+  align-items: flex-end; /* Align items to bottom, helping button placement */
+  padding: 8px 5px; /* Adjust overall padding */
+  position: relative;
+  /* Add a slight top border for visual separation */
+  border-top: 1px solid #EAEAEA; 
+  margin-top: auto; /* Push input to bottom within the flex container */
+}
+
+.chat-panel .input-area textarea {
+  flex-grow: 1;
+  margin-right: 0;
+  padding: 10px 48px 10px 15px; /* Ensure enough right padding */
+  border-radius: 18px;
+  border: 1px solid #DCDCDC;
+  resize: none;
+  min-height: 20px; 
+  max-height: 150px;
+  overflow-y: auto;
+  line-height: 1.4;
+  font-size: 1em;
+  font-family: inherit;
+  box-sizing: border-box; /* Include padding/border in element's total width/height */
+}
+
+.chat-panel .input-area button.send-icon-button {
+  position: absolute;
+  right: 12px;  /* Adjust horizontal position */
+  bottom: 15px; /* Adjust vertical position relative to input-area bottom */
+  width: 25px;  /* Slightly larger button */
+  height: 25px; /* Slightly larger button */
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background-color: #007AFF;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+  opacity: 0.5;
+  /* Remove previous relative positioning if any */
+  /* position: relative; */ 
+  /* overflow: hidden; */
+}
+
+/* Update arrow style to a chevron */
+.chat-panel .input-area button.send-icon-button::after {
+  content: '';
+  position: absolute;
+  /* Adjust size of the element that will form the chevron */
+  width: 8px; 
+  height: 8px;
+  top: 50%;
+  left: 50%;
+
+  /* Remove old border styles */
+  /* border-style: solid; */
+  /* border-width: 0 7px 9px 7px; */ 
+  /* border-color: transparent transparent white transparent; */
+
+  /* Create chevron with top and right borders, then rotate */
+  border-top: 2px solid white; /* Adjust thickness */
+  border-right: 2px solid white; /* Adjust thickness */
+  
+  /* Rotate and position */
+  /* Rotate -45deg for upward caret, adjust translate for centering */
+  transform: translate(-50%, -30%) rotate(-45deg); 
+}
+
+.chat-panel .input-area button.send-icon-button:not(:disabled) {
+   opacity: 1;
+}
+
+.chat-panel .input-area button.send-icon-button:disabled {
+  background-color: #BDBDBD;
+  cursor: not-allowed;
+}
+
+.chat-panel .input-area button.send-icon-button:not(:disabled):hover {
+  background-color: #0056b3;
+}
+
+.chat-panel .input-area button.send-icon-button:disabled:hover {
+   background-color: #BDBDBD;
+}
+
+/* Loading indicator */
+.message-list .loading-indicator {
+  text-align: center;
+  padding: 10px;
+  color: #888;
+  font-style: italic;
+}
+
+/* Animated dots for the loading indicator */
+.dot-container {
+  display: inline-block;
+  width: 18px; /* Fixed width to prevent layout shifts */
+  text-align: left; /* Align dots to the left within the container */
+  vertical-align: bottom; /* Align with the text baseline */
+}
+
+.dot {
+  display: inline-block;
+  opacity: 0; /* Start invisible */
+  animation: dotFade 1.4s infinite;
+  animation-fill-mode: both; /* Keep the final state of the animation */
+}
+
+.dot1 {
+  animation-delay: 0s; /* First dot starts immediately */
+}
+
+.dot2 {
+  animation-delay: 0.2s; /* Second dot starts after a delay */
+}
+
+.dot3 {
+  animation-delay: 0.4s; /* Third dot starts after a longer delay */
+}
+
+@keyframes dotFade {
+  0%, 80%, 100% { 
+    opacity: 0; /* Invisible at start, then fade out at end */
+  }
+  40% { 
+    opacity: 1; /* Visible in the middle of the animation */
+  }
+}
+
+/* --- Code Panel Styles (Keep Existing) --- */
+/* ... (code-panel h2, code-cell, code-input-area, run-button-overlay, etc.) ... */
+/* Make sure the code output styles don't conflict */
+
+.code-output-area pre,
+.code-output-placeholder {
+  margin: 0;
+  padding: 10px 12px;
+  background-color: #fdfdfd;
+  font-family: monospace;
+  font-size: 14px;
+  white-space: pre-wrap; /* Wrap long lines of output */
+  word-wrap: break-word;
+  color: #333;
+}
+
+.code-output-area pre {
+  border-top: 1px solid #eee; /* Add separation if there are controls */
+}
+
+/* Make the top border of text output transparent when code cell is collapsed */
+.code-cell.collapsed .output-stdout pre,
+.code-cell.collapsed .output-error pre {
+  border-top-color: transparent;
+}
+
+.code-output-placeholder p {
+  margin: 0;
+  color: #888;
+  /* font-style: italic; */ /* Removed this line */
+}
+
+/* Styling for Error Output */
+.output-error pre {
+  margin: 0;
+  padding: 10px 12px;
+  background-color: #fff0f0; /* Light red background */
+  color: #d8000c; /* Dark red text */
+  font-family: monospace;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  border-top: 1px solid #ffdddd; /* Lighter red border */
+}
+
+/* Wrapper for output and toggle button */
+.output-wrapper {
+  position: relative; /* Context for positioning the button */
+  /* Add a top border if the code editor is collapsed */
+  border-top: 1px solid transparent; /* Reserve space but keep invisible by default */
+}
+
+/* Remove the visible border when collapsed - we don't need it since the cell itself has a border */
+.code-cell.collapsed .output-wrapper {
+   border-top-color: transparent; /* Keep border transparent even when collapsed to avoid double border */
+}
+
+/* --- Minimalist Toggle Button --- */
+.toggle-collapse-button {
+  /* Reset defaults */
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit; /* Reset font size */
+  line-height: 1; /* Reset line height */
+  color: #888; /* Chevron color */
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+
+  /* Positioning & Size */
+  position: absolute;
+  top: 6px; /* Adjust position */
+  right: 8px; /* Adjust position */
+  z-index: 5;
+  width: 12px; /* Set explicit size */
+  height: 12px; /* Set explicit size */
+}
+
+.toggle-collapse-button:hover {
+  opacity: 1;
+  background-color: transparent; /* Ensure no background on hover */
+}
+
+/* Chevron shape using ::after */
+.toggle-collapse-button::after {
+  content: '';
+  position: absolute;
+  width: 6px; /* Size of chevron leg */
+  height: 6px; /* Size of chevron leg */
+  border-style: solid;
+  border-color: currentcolor; /* Use button's color */
+  border-width: 0 2px 2px 0; /* Bottom and right borders create chevron */
+  top: 50%;
+  left: 50%;
+  transform-origin: center center;
+  transition: transform 0.2s ease; /* Animate rotation */
+}
+
+/* Collapsed state (Show Code -> Downward Chevron 'v') */
+.code-cell.collapsed .toggle-collapse-button::after {
+  transform: translate(-50%, -75%) rotate(45deg); /* Point down */
+}
+
+/* Expanded state (Hide Code -> Upward Chevron '^') */
+.code-cell.expanded .toggle-collapse-button::after {
+  transform: translate(-50%, -25%) rotate(-135deg); /* Point up */
+}
+
+/* Basic header styling */
+h1, h2 {
+  margin-top: 0;
+  color: #444;
+}
+
+/* --- Code Panel Styles --- */
+
+/* Code Cell Styling */
+.code-cell {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  overflow: hidden; 
+  position: relative; /* Ensure this is set for absolute child positioning */
+}
+
+.code-input-area {
+  /* No specific styles needed here unless overriding editor defaults */
+}
+
+/* Updated Run Button Style */
+.run-button-overlay {
+  /* Ensure position is absolute */
+  position: absolute;
+  top: 3px;  /* Adjust position slightly down */
+  left: 3px; /* Adjust position slightly right */
+  z-index: 10; 
+  width: 16px;  
+  height: 16px; 
+  padding: 0;
+  border-radius: 50%; 
+  border: none; 
+  background-color: #f0f0f0; 
+  color: #555; 
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6; 
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+  /* Remove overflow:hidden from button itself */
+  /* overflow: hidden; */
+}
+
+.run-button-overlay:hover {
+  opacity: 1;
+  background-color: #e0e0e0; /* Darker grey on hover */
+}
+
+/* Draw the right-pointing arrow using ::after */
+.run-button-overlay::after {
+  content: '';
+  position: absolute;
+  width: 7px; /* Adjust size */
+  height: 7px; /* Adjust size */
+  top: 50%;
+  left: 50%;
+  
+  /* Create caret shape with top and right borders */
+  border-top: 2px solid #555;  /* Use button color */
+  border-right: 2px solid #555; /* Use button color */
+
+  /* Rotate +45deg for right caret, adjust translate for centering */
+  transform: translate(-70%, -50%) rotate(45deg);
+}
+
+
+.code-output-area pre,
+.code-output-placeholder {
+  /* ... existing styles ... */
+} 
