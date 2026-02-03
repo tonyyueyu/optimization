@@ -74,8 +74,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
                 <div className="modal-header">{title}</div>
                 <div className="modal-body">{message}</div>
                 <div className="modal-actions">
-                    <button className="btn-secondary" onClick={onClose}>Cancel</button>
-                    <button className="btn-danger" onClick={onConfirm}>Delete</button>
+                    <button type="button" className="btn-outline" onClick={onClose}>Keep</button>
+                    <button type="button" className="btn-destructive" onClick={onConfirm}>Remove</button>
                 </div>
             </div>
         </div>
@@ -93,24 +93,25 @@ const Sidebar = ({
 }) => {
     if (!isOpen) return null;
     return (
-        <div className="sidebar" style={{ display: isOpen ? 'flex' : 'none' }}>
+        <aside className="app-sidebar" style={{ display: isOpen ? 'flex' : 'none' }} aria-label="Threads">
             <div className="sidebar-header">
                 <button
-                    className="new-chat-btn"
+                    type="button"
+                    className="sidebar-new-btn"
                     onClick={onCreateSession}
                     disabled={isLoading}
                     style={{ opacity: isLoading ? 0.5 : 1, cursor: isLoading ? 'not-allowed' : 'pointer' }}
                 >
-                    <div className="plus-icon">+</div>
-                    <span>New Chat</span>
+                    <span className="sidebar-plus">+</span>
+                    <span>New thread</span>
                 </button>
             </div>
 
-            <div className="sessions-list">
+            <div className="sidebar-list">
                 {sessions.map(session => (
                     <div
                         key={session.id}
-                        className={`session-item ${currentSessionId === session.id ? 'active' : ''}`}
+                        className={`sidebar-item ${currentSessionId === session.id ? 'sidebar-item-active' : ''}`}
                         onClick={() => !isLoading && onSelectSession(session.id)}
                         style={{
                             opacity: isLoading && currentSessionId !== session.id ? 0.5 : 1,
@@ -118,25 +119,27 @@ const Sidebar = ({
                             pointerEvents: isLoading ? 'none' : 'auto'
                         }}
                     >
-                        <div className="message-icon">💬</div>
-                        <div className="session-title">
-                            {session.title || 'New Chat'}
-                        </div>
+                        <span className="sidebar-item-icon" aria-hidden>◇</span>
+                        <span className="sidebar-item-title">
+                            {session.title || 'New thread'}
+                        </span>
                         <button
-                            className="delete-session-btn"
+                            type="button"
+                            className="sidebar-item-remove"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 if (!isLoading) onDeleteSession(session.id);
                             }}
                             disabled={isLoading}
-                            title="Delete Chat"
+                            title="Remove thread"
+                            aria-label="Remove thread"
                         >
                             ×
                         </button>
                     </div>
                 ))}
             </div>
-        </div>
+        </aside>
     );
 };
 
@@ -149,7 +152,6 @@ const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent }) =>
         setIsDragging(true);
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
-        // Add a class to body to force cursor everywhere
         document.body.classList.add('resizing');
     };
 
@@ -181,12 +183,12 @@ const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent }) =>
     }, [isDragging, setWidthPercent]);
 
     return (
-        <div className="two-column-layout" ref={containerRef}>
-            <div className="steps-column" style={{ width: `${widthPercent}%` }}>
+        <div className="app-split" ref={containerRef}>
+            <div className="code-output-panel" style={{ width: `${widthPercent}%` }}>
                 {left}
             </div>
-            <div className="resizer" onMouseDown={onMouseDown} />
-            <div className="code-column" style={{ flex: 1 }}>
+            <div className="app-split-resizer" onMouseDown={onMouseDown} />
+            <div className="chat-panel" style={{ flex: 1 }}>
                 {right}
             </div>
         </div>
@@ -195,7 +197,7 @@ const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent }) =>
 
 function App() {
     const [messages, setMessages] = useState([])
-    const [leftPanelWidth, setLeftPanelWidth] = useState(60);
+    const [codePanelWidth, setCodePanelWidth] = useState(45);
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
@@ -211,6 +213,7 @@ function App() {
 
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
+    const [selectedCodeMessageIndex, setSelectedCodeMessageIndex] = useState(null);
 
     const { isLoaded, isSignedIn, user } = useUser()
     const messagesEndRef = useRef(null)
@@ -309,7 +312,7 @@ function App() {
                     return {
                         role: 'assistant',
                         type: 'steps',
-                        title: 'Solution Steps',
+                        title: 'Steps',
                         summary: msg.summary || '',
                         steps: steps.map((step, idx) => ({
                             number: step.step_id || idx + 1,
@@ -376,9 +379,21 @@ function App() {
         }
     }, [currentSessionId, isSignedIn, user?.id, fetchSessionMessages]);
 
+    useEffect(() => {
+        setSelectedCodeMessageIndex(null);
+    }, [currentSessionId]);
+
+    useEffect(() => {
+        if (!historyLoading && messages.length > 0) {
+            const idx = messages.findLastIndex(m => m.role === 'assistant' && m.type === 'steps' && m.steps?.length);
+            if (idx !== -1) setSelectedCodeMessageIndex(idx);
+        }
+    }, [historyLoading]);
+
     const handleCreateSession = () => {
         setCurrentSessionId(null);
         setMessages([]);
+        setSelectedCodeMessageIndex(null);
         setFileContext(null);
         setUploadedFileName(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -415,7 +430,6 @@ function App() {
         }
     };
 
-    // --- FILE UPLOAD ---
     const handleFileUpload = async (file) => {
         if (!file) return;
         setIsUploading(true);
@@ -483,7 +497,6 @@ function App() {
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
-        // Allow anonymous users
         const isAnonymous = !isSignedIn || !user?.id;
 
         const userMessageText = input.trim();
@@ -597,14 +610,13 @@ function App() {
                     await saveMessageToHistory(user.id, targetSessionId, 'assistant', payload);
                     await fetchSessionMessages(user.id, targetSessionId);
                 } else {
-                    // For anonymous users, append message to local state manually
                     const lastStep = finalExecutionSteps[finalExecutionSteps.length - 1];
                     const summary = lastStep?.description || '';
 
                     const newMsg = {
                         role: 'assistant',
                         type: 'steps',
-                        title: 'Solution Steps',
+                        title: 'Steps',
                         summary: summary,
                         steps: finalExecutionSteps.map((step, idx) => ({
                             number: step.step_id || idx + 1,
@@ -618,15 +630,13 @@ function App() {
                         }))
                     };
                     setMessages(prev => [...prev, newMsg]);
+                    setSelectedCodeMessageIndex(messages.length);
                 }
             }
 
         } catch (error) {
-            // Check if it was a user abort (clicking Stop)
             if (error.name !== 'AbortError') {
                 const errMsg = "Error: " + error.message;
-
-                // --- FIX: Log the error HERE, where 'error' is accessible ---
                 logErrorToBackend(`Chat Error: ${error.message}`, error.stack, { userQuery: input });
 
                 setMessages(prev => [...prev, { role: 'assistant', type: 'text', content: errMsg }]);
@@ -706,139 +716,93 @@ function App() {
         }
     };
 
-    // Collapsible code block component
-    const CollapsibleCode = ({ code }) => {
-        const [open, setOpen] = useState(false);
-        return (
-            <div className={`code-block ${open ? 'open' : 'collapsed'}`}>
-                <div
-                    className="code-header"
-                    onClick={() => setOpen(!open)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter') setOpen(!open); }}
-                    aria-expanded={open}
-                >
-                    <div className={`chev ${open ? 'open' : ''}`} />
-                    <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Code</div>
-                </div>
-                <pre className="code-display"><code>{code}</code></pre>
-            </div>
-        );
-    };
-
-    const renderJupyterCell = (cell, idx) => (
-        <div key={idx} className="notebook-cell">
+    const renderRunBlock = (cell, idx) => (
+        <section key={idx} className="run-block">
+            <header className="run-block-head">Step {cell.stepNumber}</header>
             {cell.code && (
-                <div className="cell-wrapper">
-                    <div className="cell-header-badge">Input [{cell.stepNumber}]</div>
-                    <CollapsibleCode code={cell.code} />
-                </div>
+                <pre className="run-block-code"><code>{cell.code}</code></pre>
             )}
             {(cell.output || cell.error) && (
-                <div className={`output-display ${cell.error ? 'error-display' : ''}`}>
+                <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
                     {cell.error ? <strong>Error: </strong> : null}
                     {cell.output || cell.error}
                 </div>
             )}
             {cell.plots && cell.plots.length > 0 && (
-                <div className="plot-container">
+                <div className="run-block-plot">
                     {cell.plots.map((plot, plotIdx) => (
                         <img key={plotIdx} src={`data:image/png;base64,${plot}`} alt={`Plot ${plotIdx + 1}`} />
                     ))}
                 </div>
             )}
+        </section>
+    );
+
+    const renderStepCard = (step, { isActive = false, isSummary = false } = {}) => (
+        <div
+            key={step.number}
+            className={`run-step ${isActive ? 'run-step-active' : ''} ${isSummary ? 'run-step-summary' : ''}`}
+        >
+            <span className="run-step-badge">
+                {isSummary ? '◆' : isActive ? step.number : '✓'}
+            </span>
+            <div className="run-step-body">
+                <div className="run-step-title">{isSummary ? 'Summary' : step.title}</div>
+                {step.description && <div className="run-step-desc">{step.description}</div>}
+                {(step.output || step.error) && !isSummary && (
+                    <div className={`run-step-outcome ${step.error ? 'run-step-outcome-error' : ''}`}>
+                        {step.error ? `Error: ${step.error}` : step.output}
+                    </div>
+                )}
+            </div>
         </div>
-    )
+    );
 
     const renderStreamingContent = () => {
         if (!streamingContent) return null;
-        const codeCells = extractCodeCells(streamingContent.steps);
-
         return (
             <div className="message assistant">
-                <div className="message-content">
-                    <ResizableSplitLayout
-                        widthPercent={leftPanelWidth}
-                        setWidthPercent={setLeftPanelWidth}
-                        left={<>
-                            <div className="steps-header">
-                                <div className="steps-title">
-                                    <div className="pulse-ring"></div>
-                                    <span>
-                                        {streamingContent.status === 'retrieving' && 'ANALYZING...'}
-                                        {streamingContent.status === 'generating' && 'GENERATING STEPS...'}
-                                        {streamingContent.status === 'executing' && 'RUNNING CODE...'}
-                                        {streamingContent.status === 'waiting' && 'PROCESSING...'}
-                                    </span>
+                <div className="message-content chat-steps-wrap">
+                    <div className="chat-steps-status">
+                        <span className="status-dot" />
+                        <span>
+                            {streamingContent.status === 'retrieving' && 'Looking up context…'}
+                            {streamingContent.status === 'generating' && 'Generating steps…'}
+                            {streamingContent.status === 'executing' && 'Running code…'}
+                            {streamingContent.status === 'waiting' && 'Processing…'}
+                        </span>
+                    </div>
+                    <div className="run-steps" ref={streamingStepsRef} style={{ scrollBehavior: 'smooth' }}>
+                        {streamingContent.steps.map((step) => renderStepCard(step, { isActive: false }))}
+                        {streamingContent.currentStep && (
+                            <div className="run-step run-step-active">
+                                <span className="run-step-badge">{streamingContent.currentStep}</span>
+                                <div className="run-step-body">
+                                    <div className="run-step-title">Reasoning…</div>
+                                    <div className="run-step-desc">
+                                        {streamingContent.currentTokens && (
+                                            <pre className="run-step-stream">
+                                                {streamingContent.currentTokens}
+                                                <span className="stream-caret">|</span>
+                                            </pre>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-
-                            <div className="steps-list" ref={streamingStepsRef} style={{ scrollBehavior: 'smooth' }}>
-                                {streamingContent.steps.map((step) => (
-                                    <div key={step.number} className="step-timeline-item complete">
-                                        <div className="step-marker-wrapper"><div className="step-marker">✓</div></div>
-                                        <div className="step-card">
-                                            <div className="step-card-title">{step.title}</div>
-                                            {step.description && <div className="step-card-text">{step.description}</div>}
-                                            {(step.output || step.error) && (
-                                                <div className="step-output" style={{ marginTop: '12px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'monospace', color: step.error ? '#fca5a5' : '#4ade80', border: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto' }}>
-                                                    {step.error ? `Error: ${step.error}` : `> ${step.output}`}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-
-                                {streamingContent.currentStep && (
-                                    <div className="step-timeline-item active">
-                                        <div className="step-marker-wrapper">
-                                            <div className="step-marker">{streamingContent.currentStep}</div>
-                                        </div>
-                                        <div className="step-card">
-                                            <div className="step-card-title">Thinking...</div>
-                                            <div className="step-card-text">
-                                                {streamingContent.currentTokens && (
-                                                    <pre className="token-stream" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-                                                        {streamingContent.currentTokens}
-                                                        <span className="cursor">|</span>
-                                                    </pre>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </>}
-                        right={<>
-                            <div className="jupyter-header">
-                                <div className="window-controls">
-                                    <div className="window-dot dot-red"></div>
-                                    <div className="window-dot dot-yellow"></div>
-                                    <div className="window-dot dot-green"></div>
-                                </div>
-                                <div className="jupyter-title-text">execution-environment</div>
-                            </div>
-
-                            <div className="jupyter-notebook" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
-                                {codeCells.length > 0 ? (
-                                    codeCells.map(renderJupyterCell)
-                                ) : (
-                                    <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '60px', opacity: 0.7, fontStyle: 'italic' }}>
-                     // Terminals ready. Waiting for input...
-                                    </div>
-                                )}
-                            </div>
-                        </>}
-                    />
+                        )}
+                    </div>
                 </div>
             </div>
         );
     };
 
-    const renderMessageContent = (message) => {
+    const renderMessageContent = (message, messageIndex = null) => {
         if (message.role === 'assistant' && message.type === 'steps' && message.steps?.length) {
-            return renderAssistantSteps(message);
+            return renderAssistantSteps(message, {
+                messageIndex,
+                onViewCode: messageIndex != null ? () => setSelectedCodeMessageIndex(messageIndex) : null,
+                isSelected: messageIndex != null && selectedCodeMessageIndex === messageIndex,
+            });
         }
         if (message.role === 'assistant') {
             return renderPlainText(message.content);
@@ -846,74 +810,38 @@ function App() {
         return renderUserMessage(message.content);
     }
 
-    const renderAssistantSteps = (message) => {
-        const codeCells = extractCodeCells(message.steps);
-        return (
-            <div className="assistant-message">
-                {message.summary && (
-                    <div style={{ marginBottom: '32px', padding: '24px', background: 'rgba(51, 65, 85, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '900px', margin: '0 auto 32px auto', backdropFilter: 'blur(5px)' }}>
-                        <strong style={{ color: 'var(--accent-primary)', display: 'block', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.75rem' }}>Solution Summary</strong>
-                        <div style={{ lineHeight: '1.8', fontSize: '1.1rem', color: '#e2e8f0' }}>{message.summary}</div>
-                    </div>
-                )}
-
-                <ResizableSplitLayout
-                    widthPercent={leftPanelWidth}
-                    setWidthPercent={setLeftPanelWidth}
-                    left={<>
-                        <div className="steps-header">
-                            <div className="steps-title">
-                                <span style={{ fontSize: '1.2rem' }}>🏁</span>
-                                <span>Solution Roadmap</span>
-                            </div>
-                        </div>
-
-                        <div className="steps-list">
-                            {message.steps.map((step, index) => {
-                                const isFinalSummary = index === message.steps.length - 1 && !step.code;
-                                return (
-                                    <div
-                                        key={step.number}
-                                        className={`step-timeline-item ${isFinalSummary ? 'final complete' : 'complete'}`}
-                                    >
-                                        <div className="step-marker-wrapper">
-                                            <div className="step-marker">{isFinalSummary ? '★' : step.number}</div>
-                                        </div>
-                                        <div className="step-card">
-                                            <div className="step-card-title">{isFinalSummary ? 'Conclusion' : step.title}</div>
-                                            {step.description && <div className="step-card-text">{step.description}</div>}
-                                            {(step.output || step.error) && !isFinalSummary && (
-                                                <div className="step-output" style={{ marginTop: '12px', background: '#0f172a', padding: '12px', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'monospace', color: step.error ? '#fca5a5' : '#4ade80', border: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto' }}>
-                                                    {step.error ? `Error: ${step.error}` : `> ${step.output}`}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </>}
-                    right={<>
-                        <div className="jupyter-header">
-                            <div className="window-controls">
-                                <div className="window-dot dot-red"></div>
-                                <div className="window-dot dot-yellow"></div>
-                                <div className="window-dot dot-green"></div>
-                            </div>
-                            <div className="jupyter-title-text">read-only-view</div>
-                        </div>
-                        <div className="jupyter-notebook">
-                            {codeCells.length > 0 ? (
-                                codeCells.map(renderJupyterCell)
-                            ) : (
-                                <div style={{ padding: '32px', color: 'var(--text-muted)', textAlign: 'center' }}>No code steps in this solution.</div>
-                            )}
-                        </div>
-                    </>}
-                />
+    const renderAssistantSteps = (message, { messageIndex = null, onViewCode = null, isSelected = false } = {}) => (
+        <div className={`assistant-message ${isSelected ? 'message-code-selected' : ''}`}>
+            {onViewCode && (
+                <button
+                    type="button"
+                    className="view-code-btn"
+                    onClick={(e) => { e.stopPropagation(); onViewCode(); }}
+                    aria-pressed={isSelected}
+                >
+                    <span className="view-code-icon" aria-hidden>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="16 18 22 12 16 6" />
+                            <polyline points="8 6 2 12 8 18" />
+                        </svg>
+                    </span>
+                    <span>{isSelected ? 'Showing in code panel' : 'View code in left panel'}</span>
+                </button>
+            )}
+            {message.summary && (
+                <div className="message-summary-block">
+                    <strong className="message-summary-label">Summary</strong>
+                    <div className="message-summary-text">{message.summary}</div>
+                </div>
+            )}
+            <div className="run-steps">
+                {message.steps.map((step, index) => {
+                    const isFinalSummary = index === message.steps.length - 1 && !step.code;
+                    return renderStepCard(step, { isSummary: isFinalSummary });
+                })}
             </div>
-        );
-    }
+        </div>
+    );
 
     const renderPlainText = (text = '') => (
         <div className="assistant-message">
@@ -925,21 +853,38 @@ function App() {
         <pre className="user-message-text">{text}</pre>
     )
 
-    if (!isLoaded) return <div className="app loading">Loading...</div>;
+    if (!isLoaded) return <div className="app app-loading">Starting…</div>;
 
     return (
 
         <div className="app">
             <div className="app-layout" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-                {isDragging && <div className="drag-overlay" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px' }}>Drop file to upload</div>}
+                {isDragging && <div className="drag-overlay" role="status">Drop file here</div>}
 
                 <ConfirmationModal
                     isOpen={isDeleteModalOpen}
                     onClose={() => setIsDeleteModalOpen(false)}
                     onConfirm={confirmDeleteSession}
-                    title="Delete Chat Session"
-                    message="Are you sure you want to delete this chat? This action cannot be undone."
+                    title="Remove this thread?"
+                    message="This thread and its messages will be permanently removed. You can’t undo this."
                 />
+
+                <div className="sidebar-toggle-strip" title={isSidebarOpen ? "Hide threads" : "Show threads"}>
+                    <button
+                        type="button"
+                        className="sidebar-toggle-btn"
+                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                        aria-label={isSidebarOpen ? "Hide threads" : "Show threads"}
+                        aria-expanded={isSidebarOpen}
+                    >
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="3" y1="12" x2="21" y2="12" />
+                            <line x1="3" y1="6" x2="21" y2="6" />
+                            <line x1="3" y1="18" x2="21" y2="18" />
+                        </svg>
+                        <span className="sidebar-toggle-label">Threads</span>
+                    </button>
+                </div>
 
                 <Sidebar
                     sessions={sessions}
@@ -951,115 +896,148 @@ function App() {
                     isOpen={isSidebarOpen}
                 />
 
-                <div className="chat-container">
-                    <div className="chat-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <button
-                                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                                className="header-toggle-btn"
-                                title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
-                            >
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <line x1="3" y1="12" x2="21" y2="12"></line>
-                                    <line x1="3" y1="6" x2="21" y2="6"></line>
-                                    <line x1="3" y1="18" x2="21" y2="18"></line>
-                                </svg>
-                            </button>
-                            <h1>{sessions.find(s => s.id === currentSessionId)?.title || "HippoFlo"}</h1>
-                        </div>
-                        <div className="header-buttons">
-                            {isLoading && <button onClick={() => abortControllerRef.current?.abort()} className="cancel-button">Stop</button>}
-                            <a href="https://discord.gg/7P2QbmQx" target="_blank" rel="noopener noreferrer" className="discord-button">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515a.074.074 0 00-.079.037c-.211.375-.444.864-.607 1.25a18.27 18.27 0 00-5.487 0c-.163-.386-.395-.875-.607-1.25a.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.042-.106c-.658-.249-1.282-.578-1.855-.953a.077.077 0 00-.009-.128c.124-.093.248-.19.368-.287a.074.074 0 00.076-.01c3.89 1.817 8.109 1.817 11.967 0a.075.075 0 00.076.009c.12.098.244.195.369.288a.077.077 0 00-.008.129c-.574.375-1.198.704-1.856.953a.077.077 0 00-.041.107c.352.699.764 1.364 1.225 1.994a.076.076 0 00.084.028 19.963 19.963 0 006.002-3.03.077.077 0 00.032-.057c.5-4.788-.838-8.95-3.549-12.676a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-.965-2.157-2.156c0-1.193.955-2.157 2.157-2.157c1.202 0 2.157.964 2.157 2.157c0 1.19-.955 2.157-2.157 2.157zm7.975 0c-1.183 0-2.157-.965-2.157-2.156c0-1.193.955-2.157 2.157-2.157c1.202 0 2.157.964 2.157 2.157c0 1.19-.955 2.157-2.157 2.157z" />
-                                </svg>
-                            </a>
-                            <SignedIn>
-                                <UserButton />
-                            </SignedIn>
-                            <SignedOut>
-                                <SignInButton mode="modal">
-                                    <button className="new-chat-btn" style={{ width: 'auto', padding: '8px 16px', justifyContent: 'center', background: 'var(--accent-primary)', border: 'none' }}>Sign In</button>
-                                </SignInButton>
-                            </SignedOut>
-                        </div>
-                    </div>
-
-                    <div className="messages-container">
-                        {!currentSessionId && messages.length === 0 ? (
-                            <div className="empty-state">
-                                <h2>How can I help you?</h2>
-                                <p>Start a new chat or begin typing below.</p>
-                                <SignedOut>
-                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '20px', fontStyle: 'italic', background: 'rgba(255,255,255,0.05)', padding: '10px 20px', borderRadius: '20px' }}>
-                                        Note: Chats start in anonymous mode. Sign in to save your history.
-                                    </p>
-                                </SignedOut>
-                            </div>
-                        ) : (
-                            <>
-                                {messages.length === 0 && !isLoading && !streamingContent && (
-                                    <div className="empty-state" style={{ minHeight: '200px' }}>
-                                        <p>No messages yet.</p>
+                {(() => {
+                    const codeOutputCells = streamingContent
+                        ? extractCodeCells(streamingContent.steps)
+                        : (() => {
+                            const idx = selectedCodeMessageIndex != null &&
+                                messages[selectedCodeMessageIndex]?.role === 'assistant' &&
+                                messages[selectedCodeMessageIndex]?.type === 'steps'
+                                ? selectedCodeMessageIndex
+                                : messages.findLastIndex(m => m.role === 'assistant' && m.type === 'steps' && m.steps?.length);
+                            const msg = idx >= 0 ? messages[idx] : null;
+                            return msg?.steps ? extractCodeCells(msg.steps) : [];
+                        })();
+                    return (
+                        <ResizableSplitLayout
+                            widthPercent={codePanelWidth}
+                            setWidthPercent={setCodePanelWidth}
+                            left={
+                                <>
+                                    <div className="code-output-header">
+                                        <div className="code-output-header-top">
+                                            <div className="workspace-code-dots">
+                                                <span className="ws-dot ws-dot-red" />
+                                                <span className="ws-dot ws-dot-amber" />
+                                                <span className="ws-dot ws-dot-green" />
+                                            </div>
+                                            <span className="code-output-label">Code output</span>
+                                        </div>
+                                        {messages.some(m => m.role === 'assistant' && m.type === 'steps') && (
+                                            <p className="code-output-hint">Use « View code in left panel » on any response in the chat to see that run here.</p>
+                                        )}
                                     </div>
-                                )}
-
-                                {messages.map((message, index) => (
-                                    <div key={index} className={`message ${message.role}`}>
-                                        <div className="message-content">{renderMessageContent(message)}</div>
+                                    <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
+                                        {codeOutputCells.length > 0 ? (
+                                            codeOutputCells.map(renderRunBlock)
+                                        ) : (
+                                            <div className="workspace-code-placeholder">
+                                                {streamingContent ? 'Waiting for output…' : 'Code from your last run will appear here.'}
+                                            </div>
+                                        )}
                                     </div>
-                                ))}
+                                </>
+                            }
+                            right={
+                                <>
+                                    <header className="app-header">
+                                        <div className="app-header-left">
+                                            <span className="app-logo" aria-hidden>
+                                                <svg width="28" height="28" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M10 8l10 8-10 8V8z" />
+                                                    <path d="M6 6v20" />
+                                                </svg>
+                                            </span>
+                                            <h1 className="app-header-title">{sessions.find(s => s.id === currentSessionId)?.title || "Solver"}</h1>
+                                        </div>
+                                        <div className="app-header-right">
+                                            {isLoading && (
+                                                <button type="button" onClick={() => abortControllerRef.current?.abort()} className="app-header-stop-btn">Stop</button>
+                                            )}
+                                            <SignedIn>
+                                                <UserButton />
+                                            </SignedIn>
+                                            <SignedOut>
+                                                <SignInButton mode="modal">
+                                                    <button type="button" className="app-header-signin-btn">Log in</button>
+                                                </SignInButton>
+                                            </SignedOut>
+                                        </div>
+                                    </header>
 
-                                {isLoading && streamingContent && renderStreamingContent()}
-                            </>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
+                                    <div className="messages-area">
+                                        {!currentSessionId && messages.length === 0 ? (
+                                            <div className="empty-state">
+                                                <h2 className="empty-state-heading">What would you like to work on?</h2>
+                                                <p className="empty-state-text">Create a thread or type below to get started.</p>
+                                                <SignedOut>
+                                                    <p className="empty-state-hint">Sign in to save your threads and history.</p>
+                                                </SignedOut>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {messages.length === 0 && !isLoading && !streamingContent && (
+                                                    <div className="empty-state empty-state-small">
+                                                        <p className="empty-state-text">No messages in this thread.</p>
+                                                    </div>
+                                                )}
 
-                    <div className="input-container">
-                        {uploadedFileName && (
-                            <div className="file-attachment-indicator">
-                                <span>📄 {uploadedFileName}</span>
-                                <button className="remove-file-btn" onClick={() => { setUploadedFileName(null); setFileContext(null); }}>×</button>
-                            </div>
-                        )}
-                        <div className="input-wrapper" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-                            <button className="upload-button" onClick={() => fileInputRef.current?.click()} title="Upload File">
-                                {isUploading ? (
-                                    <div className="spinner"></div>
-                                ) : (
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                                    </svg>
-                                )}
-                            </button>
-                            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+                                                {messages.map((message, index) => (
+                                                    <div key={index} className={`message ${message.role}`}>
+                                                        <div className="message-content">{renderMessageContent(message, index)}</div>
+                                                    </div>
+                                                ))}
 
-                            <textarea
-                                ref={textareaRef}
-                                value={input}
-                                onChange={e => setInput(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
-                                }}
-                                placeholder="Message..."
-                                rows={1}
-                                className="chat-input"
-                                style={{ flex: 1, maxHeight: '200px', resize: 'none', background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '10px' }}
-                            />
+                                                {isLoading && streamingContent && renderStreamingContent()}
+                                            </>
+                                        )}
+                                        <div ref={messagesEndRef} />
+                                    </div>
 
-                            <button onClick={handleSend} disabled={isLoading || !input.trim()} className="send-button">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <line x1="22" y1="2" x2="11" y2="13"></line>
-                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                                    <div className="composer">
+                                        {uploadedFileName && (
+                                            <div className="composer-attachment">
+                                                <span className="composer-attachment-name">{uploadedFileName}</span>
+                                                <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
+                                            </div>
+                                        )}
+                                        <div className="composer-inner">
+                                            <button type="button" className="composer-attach-btn" onClick={() => fileInputRef.current?.click()} title="Attach file" aria-label="Attach file">
+                                                {isUploading ? <span className="composer-spinner" /> : (
+                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+                                            <textarea
+                                                ref={textareaRef}
+                                                value={input}
+                                                onChange={e => setInput(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        handleSend();
+                                                    }
+                                                }}
+                                                placeholder="Ask anything or describe your task…"
+                                                rows={1}
+                                                className="composer-input"
+                                                aria-label="Message"
+                                            />
+                                            <button type="button" onClick={handleSend} disabled={isLoading || !input.trim()} className="composer-send-btn" aria-label="Send">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <line x1="22" y1="2" x2="11" y2="13" />
+                                                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </>
+                            }
+                        />
+                    );
+                })()}
             </div>
         </div>
     )
