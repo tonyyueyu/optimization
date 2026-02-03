@@ -1,6 +1,0 @@
-name = "optimization-solver"
-pages_build_output_dir = "dist"
-compatibility_date = "2026-02-02"
-
-[site]
-bucket = "./dist" # Ensures wrangler knows where the static assets live
