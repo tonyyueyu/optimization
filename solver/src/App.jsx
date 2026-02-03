@@ -943,10 +943,7 @@ function App() {
                                     <header className="app-header">
                                         <div className="app-header-left">
                                             <span className="app-logo" aria-hidden>
-                                                <svg width="28" height="28" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <path d="M10 8l10 8-10 8V8z" />
-                                                    <path d="M6 6v20" />
-                                                </svg>
+                                                <img src="/favicon.png" alt="Solver" width="28" height="28" />
                                             </span>
                                             <h1 className="app-header-title">{sessions.find(s => s.id === currentSessionId)?.title || "Solver"}</h1>
                                         </div>
