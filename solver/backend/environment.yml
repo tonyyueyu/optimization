@@ -1,20 +1,34 @@
 name: base
 channels:
   - conda-forge
+  - pytorch
 dependencies:
   # --- Core Runtime ---
   - python=3.10
   - pip
 
   # --- Web & Kernel Infrastructure ---
-  - fastapi               # <--- ADDED
-  - uvicorn               # <--- ADDED
-  - python-multipart      # <--- REQUIRED for file uploads
+  - fastapi
+  - uvicorn
+  - python-multipart
   - jupyter_client
   - ipykernel
   - jupyterlab
+  - google-cloud-storage
+  - time
 
-  # --- Math & Data Science ---
+  # --- High-Performance Data & ML ---
+  - polars                # <--- Industrial alternative to Pandas
+  - pyarrow               # <--- Needed for Polars/Parquet performance
+  - xgboost               # <--- Industrial Gradient Boosting
+  - lightgbm              # <--- Ultra-fast Gradient Boosting
+  - pytorch               # <--- Deep Learning & Tensor Ops
+  - cpuonly               # <--- Ensures Docker stays light (no CUDA)
+  - torchvision
+  - jax                   # <--- Google's JIT-compiled Numerical Lib
+  - jaxlib
+
+  # --- Math & Data Science (Legacy Support) ---
   - numpy
   - scipy
   - pandas

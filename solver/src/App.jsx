@@ -59,15 +59,19 @@ const extractCodeCells = (steps) => {
             output: step.output || '',
             error: step.error || '',
             language: step.language || 'python',
-            plots: step.plots || []
+            plots: step.plots || [],
+            files: step.files || []
+
         }))
-        .filter(cell => cell.code || cell.output || cell.error || (cell.plots && cell.plots.length > 0))
+        .filter(cell => cell.code || cell.output || cell.error || (cell.plots && cell.plots.length > 0) || (cell.files && cell.files.length > 0))
 }
 
 const truncateText = (text, maxLength = 100) => {
     if (!text) return ''
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
 }
+
+
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
     if (!isOpen) return null;
@@ -154,8 +158,6 @@ const RunBlock = ({ cell }) => {
             <header
                 className="run-block-head"
                 onClick={() => setIsCodeVisible(!isCodeVisible)}
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                title={isCodeVisible ? "Hide code" : "Show code"}
             >
                 <div className={`run-block-chevron ${isCodeVisible ? 'expanded' : ''}`}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -169,17 +171,45 @@ const RunBlock = ({ cell }) => {
                 {isCodeVisible && cell.code && (
                     <pre className="run-block-code"><code>{cell.code}</code></pre>
                 )}
+                
                 {(cell.output || cell.error) && (
                     <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
                         {cell.error ? <strong>Error: </strong> : null}
                         {cell.output || cell.error}
                     </div>
                 )}
+
                 {cell.plots && cell.plots.length > 0 && (
                     <div className="run-block-plot">
                         {cell.plots.map((plot, plotIdx) => (
                             <img key={plotIdx} src={`data:image/png;base64,${plot}`} alt={`Plot ${plotIdx + 1}`} />
                         ))}
+                    </div>
+                )}
+
+                {/* UPDATED FILE SECTION */}
+               {cell.files && cell.files.length > 0 && (
+            <div className="run-block-files">
+                {cell.files.map((file, idx) => (
+                    <button 
+                        key={idx} 
+                        type="button"
+                        className="download-btn"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(file.download_url, '_blank');
+                        }}
+                    >
+                        <span className="download-btn-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                        </span>
+                        <span>Download {file.name}</span>
+                    </button>
+                ))}
                     </div>
                 )}
             </div>
@@ -366,7 +396,8 @@ function App() {
                             language: 'python',
                             output: step.output || '',
                             error: step.error || '',
-                            plots: step.plots || []
+                            plots: step.plots || [],
+                            files: step.files || []
                         }))
                     };
                 }
@@ -475,36 +506,65 @@ function App() {
     };
 
     const handleFileUpload = async (file) => {
-        if (!file) return;
-        setIsUploading(true);
+    if (!file) return;
+    
+    setIsUploading(true);
+    let sessionId = currentSessionId;
+
+    try {
+        // 1. If no session exists, create one immediately
+        if (!sessionId) {
+            const isAnonymous = !isSignedIn || !user?.id;
+            const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    user_id: user?.id || 'anonymous', 
+                    title: `Upload: ${file.name}` 
+                })
+            });
+
+            if (createRes.ok) {
+                const sData = await createRes.json();
+                sessionId = sData.session_id;
+                setCurrentSessionId(sessionId); // Set for the rest of the app
+                if (!isAnonymous) fetchSessions(user.id); // Refresh sidebar
+            } else {
+                throw new Error("Failed to initialize session for upload.");
+            }
+        }
+
+        // 2. Now proceed with the upload using the (newly created or existing) sessionId
         const formData = new FormData();
         formData.append('file', file);
         formData.append('user_id', user?.id || 'anonymous');
+        formData.append('session_id', sessionId); // <--- We now definitely have this
 
-        try {
-            const response = await fetch(`${API_BASE}/api/upload`, {
-                method: 'POST',
-                body: formData,
-            });
-            if (!response.ok) {
-                const txt = await response.text();
-                throw new Error(txt);
-            }
-            const data = await response.json();
-            const summary = data.summary || `File '${file.name}' uploaded successfully.`;
-            setFileContext(summary);
-            setUploadedFileName(file.name);
-        } catch (error) {
-            logErrorToBackend(`Upload Error: ${error.message}`, error.stack, { fileName: file.name });
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                type: 'text',
-                content: `❌ Error uploading file: ${error.message}`
-            }]);
-        } finally {
-            setIsUploading(false);
+        const response = await fetch(`${API_BASE}/api/upload`, {
+            method: 'POST',
+            body: formData,
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(JSON.stringify(errorData));
         }
-    };
+        
+        const data = await response.json();
+        setUploadedFileName(file.name);
+        setFileContext(data.summary || `File '${file.name}' uploaded successfully.`);
+
+    } catch (error) {
+        console.error("Upload Error:", error);
+        setMessages(prev => [...prev, {
+            role: 'assistant',
+            type: 'text',
+            content: `❌ Error uploading file: ${error.message}`
+        }]);
+    } finally {
+        setIsUploading(false);
+    }
+};
 
     const onDragOver = useCallback((e) => {
         e.preventDefault(); e.stopPropagation();
@@ -593,34 +653,17 @@ function App() {
         abortControllerRef.current = new AbortController();
 
         try {
-            const retrieveRes = await fetch(`${API_BASE}/api/retrieve`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: userMessage.content, top_n: 2 }),
-                signal: abortControllerRef.current.signal
-            });
-
-            let first = "", second = "";
-            if (retrieveRes.ok) {
-                const probs = await retrieveRes.json();
-                first = formatReference(probs[0]);
-                second = formatReference(probs[1]);
-            }
-
             setStreamingContent(prev => ({ ...prev, status: 'solving' }));
 
             const formattedHistory = messages.map(msg => {
                 if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
                 if (msg.role === 'assistant') {
-                    if (msg.type === 'steps' && msg.steps && Array.isArray(msg.steps)) {
+                    // If it's a "steps" message, convert the steps to a readable string summary for the LLM
+                    if (msg.type === 'steps' && msg.steps) {
                         const stepsSummary = msg.steps.map(s => `- ${s.description}`).join('\n');
                         return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
                     }
-                    let content = msg.content;
-                    if (typeof content !== 'string') {
-                        content = JSON.stringify(content) || '';
-                    }
-                    return { role: 'assistant', content: content };
+                    return { role: 'assistant', content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) };
                 }
                 return null;
             }).filter(Boolean);
@@ -629,10 +672,8 @@ function App() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    problem: first,
-                    second_problem: second,
                     user_query: finalQuery,
-                    user_id: user?.id || "anonymous",
+                    user_id: user?.id,
                     session_id: targetSessionId,
                     chat_history: formattedHistory
                 }),
@@ -687,7 +728,8 @@ function App() {
                             language: 'python',
                             output: step.output || '',
                             error: step.error || '',
-                            plots: step.plots || []
+                            plots: step.plots || [],
+                            files: step.files || []
                         }))
                     };
                     setMessages(prev => [...prev, newMsg]);
@@ -751,6 +793,7 @@ function App() {
                     output: event.data.step.output || '',
                     error: event.data.step.error || '',
                     plots: event.data.step.plots || [],
+                    files: event.data.step.files || [],
                 };
                 setStreamingContent(prev => {
                     const exists = prev.steps.some(s => s.number === formattedStep.number);
@@ -893,6 +936,30 @@ function App() {
     const renderUserMessage = (text = '') => (
         <pre className="user-message-text">{text}</pre>
     )
+    useEffect(() => {
+    // We only want to attempt cleanup if there is an active session
+    if (!currentSessionId) return;
+
+    const handleTabClose = () => {
+        const url = `${API_BASE}/api/session/close`; // Uses your dynamic dynamic base
+        const payload = JSON.stringify({
+            user_id: user?.id || 'anonymous', // Correctly access Clerk user ID
+            session_id: currentSessionId 
+        });
+
+        // 'keepalive: true' is essential. It tells the browser to finish 
+        // the request even if the tab is fully destroyed.
+        fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+            keepalive: true, 
+        });
+    };
+
+    window.addEventListener("beforeunload", handleTabClose);
+    return () => window.removeEventListener("beforeunload", handleTabClose);
+}, [currentSessionId, user?.id, API_BASE]); // Dependencies ensure the listener stays updated
 
     if (!isLoaded) return <div className="app app-loading">Starting…</div>;
 

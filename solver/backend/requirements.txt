@@ -12,3 +12,4 @@ python-multipart
 json_repair
 firebase-admin
 google-cloud-logging
+google-cloud-storage

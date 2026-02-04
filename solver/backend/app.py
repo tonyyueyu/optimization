@@ -15,7 +15,11 @@ from history_manager import HistoryManager
 import google.cloud.logging
 from google.cloud.logging.handlers import CloudLoggingHandler
 from google import genai
-from google.genai import types
+from google.genai import  types
+from datetime import timedelta
+from google.cloud import storage
+
+
 
 # 1. Patch HTTPX (Keep this at the very top)
 _original_async_client_init = httpx.AsyncClient.__init__
@@ -56,7 +60,8 @@ else:
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
-
+storage_client = None 
+GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 # GLOBAL CLIENTS
 genai_client = None
 index = None
@@ -100,7 +105,7 @@ class SolveRequest(BaseModel):
     user_query: str
     user_id: Optional[str] = None 
     session_id: Optional[str] = None 
-    chat_history: Optional[List[Dict[str, str]]] = None
+    chat_history: Optional[List[Dict[str, Any]]] = None
 
 class ChatHistoryRequest(BaseModel):
     user_id: str
@@ -129,24 +134,39 @@ def send_sse_event(event_type: str, data: dict) -> str:
     """Format data as Server-Sent Event"""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
+def get_storage_client():
+    global storage_client
+    if storage_client is None:
+        try:
+            # This will look for GOOGLE_APPLICATION_CREDENTIALS env var
+            storage_client = storage.Client()
+            logger.info("✅ GCS Storage Client initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ GCS Storage Client failed (Local Dev?): {e}")
+            return None
+    return storage_client
+
 
 # -------------------- API Endpoints --------------------
 
 @app.post("/api/upload")
-async def upload_proxy(file: UploadFile = File(...), user_id: str = Form(...)):
-    """
-    Receives file from React, forwards it to Docker container using Async Client.
-    """
+async def upload_proxy(
+    file: UploadFile = File(...), 
+    user_id: str = Form(...), 
+    session_id: str = Form(...) # Add this
+):
     try:
         file_content = await file.read()
         files_to_send = {'file': (file.filename, file_content, file.content_type)}
+        data_to_send = {'session_id': session_id} # Change user_id to session_id
         
-        # OPTIMIZATION: Use httpx for non-blocking I/O
         async with httpx.AsyncClient() as client:
-            response = await client.post(f"{EXECUTOR_HOST}/upload", files=files_to_send)
+            response = await client.post(f"{EXECUTOR_HOST}/upload", files=files_to_send, data=data_to_send)
         
+        if response.status_code == 413:
+            raise HTTPException(status_code=413, detail="1.5GB Session Limit Exceeded")
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=f"Docker Upload Failed: {response.text}")
+            raise HTTPException(status_code=response.status_code, detail=f"Upload Failed: {response.text}")
 
         return response.json()
 
@@ -159,104 +179,113 @@ async def upload_proxy(file: UploadFile = File(...), user_id: str = Form(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 OPTIMIZATION_TAGS = [
-    "Linear Programming",
-    "Mixed-Integer Programming",
-    "Non-linear Programming",
-    "Vehicle Routing Problem",
-    "Facility Location Problem",
-    "Scheduling & Timetabling",
-    "Supply Chain Optimization",
-    "Stochastic Optimization",
-    "Multi-objective Optimization",
-    "Knapsack Problem",
-    "Network Flow"
-]
+    "Linear Programming (LP)",
+    "Mixed-Integer Programming (MIP)",
+    "Binary Integer Programming (BIP)",
+    "Multi-period Planning",
+    "Inventory & Flow Balance",
+    "Blending & Quality Constraints",
+    "Goal Programming (Deviation Minimization)",
+    "Non-linear Programming (NLP)",
+    "Combinatorial Optimization (Bin Packing)",
+    "Financial & Cash Flow Modeling",
+    "Vectorized Data Processing",
+    "Supervised Learning (Classification)",
+    "Supervised Learning (Regression)",
+    "Time-Series Analysis & Rolling Statistics",
+    "Survival Analysis",
+    "Signal Processing (Frequency Domain)",
+    "Imbalanced Class Handling",
+    "Just-In-Time (JIT) Compilation",
+    "Deep Learning (Neural Networks)",
+    "Natural Language Processing (NLP)",
+    "CAD-Integrated Optimization",
+    "Geometric Containment & Rotation"
+  ]# --- Updated app.py logic ---
 
-@app.post("/api/retrieve")
-async def retrieve(data: RetrieveRequest):
-    query = data.query.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Query is required")
-    
+async def get_references(query: str, chat_history: list):
+    """
+    RAG Logic: 
+    1. Standalone Query: Rephrases follow-ups to avoid 'CSV' or 'export' noise.
+    2. Tag Prediction: Picks method-only tags with high strictness.
+    3. Pinecone Search: Uses tags as a soft pre-filter with a vector-only fallback.
+    """
     try:
-        tag_prediction_prompt = f"""
-        Given the user's math optimization query, select the 2 or 3 most relevant tags from the following list.
-        Return ONLY a JSON list of strings.
+        search_query = query
+    
+
+        # --- 2. PREDICT RELEVANT TAGS (Strict Prompting) ---
+        predicted_tags = []
+        tag_prompt = f"""
+        Identify which math or data analysis categories the final query relates to. Only choose categories from the allowed list of tags. If none fit, don't choose any. Focus on the last query. 
         
-        Tags: {json.dumps(OPTIMIZATION_TAGS)}
-        Query: "{query}"
-        """
+        ALLOWED TAGS: {json.dumps(OPTIMIZATION_TAGS)}
+        QUERY: "{search_query}"
+        
+        Return ONLY a JSON list of strings. If none apply, return []."""
         
         try:
             tag_resp = genai_client.models.generate_content(
                 model=CHAT_MODEL_NAME,
-                contents=tag_prediction_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.0
-                )
+                contents=tag_prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
             )
             predicted_tags = json_repair.loads(tag_resp.text)
-            logger.info(f"Predicted tags for query: {predicted_tags}")
-        except Exception as tag_err:
-            logger.error(f"Tag prediction failed: {tag_err}")
-            predicted_tags = []
+            # Filter out any hallucinations not in our master list
+            predicted_tags = [t for t in predicted_tags if t in OPTIMIZATION_TAGS]
+            logger.info(f"🏷️ Predicted Tags: {predicted_tags}")
+        except Exception as e:
+            logger.error(f"Tag prediction failed: {e}")
 
-        try:
-            embed_resp = genai_client.models.embed_content(
-                model=EMBEDDING_MODEL_NAME,
-                contents=query,
-                config=types.EmbedContentConfig(
-                    task_type='RETRIEVAL_QUERY'
-                )
-            )
-            query_embed = embed_resp.embeddings[0].values
-        except Exception as gemini_error:
-            logger.error(f"Gemini embedding failed: {str(gemini_error)}")
-            return []
+        # --- 3. EMBEDDING ---
+        embed_resp = genai_client.models.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            contents=search_query,
+            config=types.EmbedContentConfig(task_type='RETRIEVAL_QUERY')
+        )
+        query_embed = embed_resp.embeddings[0].values
+
+        # --- 4. FUZZY TAG SEARCH ---
+        # We use $in which acts as an 'OR' match. This matches any document 
+        # that has at least ONE of the predicted tags.
+        pinecone_filter = {"tag": {"$in": predicted_tags}} if predicted_tags else None
         
-        try:
-            pinecone_filter = None
-            if predicted_tags:
-                pinecone_filter = {"tag": {"$in": predicted_tags}}
-
-            results = index.query(
-                vector=query_embed, 
-                top_k=2, 
-                include_metadata=True,
-                filter=pinecone_filter
-            )
-            
-            # Fallback: If filtered results are empty, try without filter
-            if not results.get("matches") and pinecone_filter:
-                logger.info("No filtered results found, falling back to general search.")
-                results = index.query(vector=query_embed, top_k=2, include_metadata=True)
-
-        except Exception as pinecone_error:
-            logger.error(f"Pinecone query failed: {pinecone_error}")
-            raise HTTPException(status_code=503, detail="Search index unavailable")
-
-        res = []
+        results = index.query(
+            vector=query_embed, 
+            top_k=2, 
+            include_metadata=True, 
+            filter=pinecone_filter
+        )
+        
+        # Robust Fallback: If tags were too specific or wrong, drop them and rely on Vector Similarity
+        if not results.get("matches") or results["matches"][0]["score"] < 0.6:
+            logger.info("⚠️ Tags too restrictive or low similarity. Falling back to vector-only search.")
+            results = index.query(vector=query_embed, top_k=2, include_metadata=True)
+        
+        # --- 5. FORMAT RESULTS ---
+        refs = []
         for match in results.get("matches", []):
-            metadata_json = match.get("metadata", {}).get("json")
-            if metadata_json:
-                try:
-                    obj = json.loads(metadata_json)
-                    res.append({
-                        "score": match["score"],
-                        "id": obj.get("id"),
-                        "problem": obj.get("problem"),
-                        "solution": obj.get("solution"),
-                        "steps": obj.get("steps"),
-                        "tags": obj.get("tags", [])
-                    })
-                except json.JSONDecodeError:
-                    continue
-        return res 
+            try:
+                # Assuming your metadata is stored in a 'json' field
+                meta_json = match.get("metadata", {}).get("json")
+                if meta_json:
+                    meta = json.loads(meta_json)
+                    refs.append(format_reference(meta))
+            except: continue
+            
+        while len(refs) < 2:
+            refs.append("Reference example not found.")
+            
+        return refs[0], refs[1]
 
     except Exception as e:
-        logger.error(f"Retrieval failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error during retrieval")
+        logger.error(f"CRITICAL RAG ERROR: {e}")
+        return "Reference unavailable.", "Reference unavailable."
+
+def format_reference(data):
+    """Formats the JSON metadata into the string Gemini expects."""
+    if not data: return ""
+    return f"PROBLEM: {data.get('problem')}\nSTEPS: {json.dumps(data.get('steps'))}"
 
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
@@ -265,6 +294,9 @@ async def solve(data: SolveRequest):
         raise HTTPException(status_code=400, detail="User query is required")
 
     async def stream_solution():
+        
+        ref1, ref2 = await get_references(user_query, data.chat_history or [])
+
         step_history = []
         
         # --- CONFIGURATION ---
@@ -401,12 +433,19 @@ async def solve(data: SolveRequest):
                 1. You are NOT allowed to solve the entire problem at once.
                 2. You must output EXACTLY ONE JSON object representing the immediate next step.
                 3. After generating one JSON object, you must STOP immediately.
+                
+                DIRECTORY & FILE ACCESS:
+                - Your working directory is the root of the current session.
+                - **READING UPLOADS:** User-uploaded files are located in the "uploads/" folder. Use: `pd.read_csv("uploads/filename.csv")`.
+                - **SAVING EXPORTS:** To provide a file for the user to download, you MUST save it to the "exports/" folder. Use: `df.to_csv("exports/results.csv")`.
+                - **PLOTS:** Standard `matplotlib` or `plotly` displays will be captured automatically; you do not need to save them to "exports/" unless the user specifically asks for an image file.
+                - **GCS UPLOADS:** Any file saved to "exports/" will be automatically uploaded to Google Cloud Storage for user download.
 
                 GOAL: Solve this problem: "{user_query}"
 
                 REFERENCE EXAMPLES:
-                1. {data.problem}
-                2. {data.second_problem}
+                1. {ref1}
+                2. {ref2}
 
                 CURRENT STATUS:
                 History of steps taken: {json.dumps(step_history)}
@@ -435,6 +474,7 @@ async def solve(data: SolveRequest):
                     "to_do": ["string", "string", ...],
                     "is_final_step": boolean
                 }}
+                
                 """
 
                 yield send_sse_event("ping", {"msg": "waiting_for_ai"})
@@ -485,7 +525,11 @@ async def solve(data: SolveRequest):
                 if code_to_run:
                     try:
                         async with httpx.AsyncClient(timeout=60.0) as exe_client:
-                            resp = await exe_client.post(EXECUTOR_URL, json={"code": code_to_run})
+                            resp = await exe_client.post(EXECUTOR_URL, json={
+                                "code": code_to_run,
+                                "session_id": data.session_id,
+                                "timeout": 60
+                            })
                             if resp.status_code == 200:
                                 execution_result = resp.json()
                             else:
@@ -497,6 +541,16 @@ async def solve(data: SolveRequest):
                 code_output = execution_result.get("output", "")
                 if execution_result.get("error"):
                     code_output += f"\nERROR: {execution_result['error']}"
+                    
+                final_files = []
+                if execution_result.get("files"):
+                    for file_info in execution_result["files"]:
+                        signed_url = generate_signed_download_url(file_info["gcs_path"])
+                        if signed_url:
+                            final_files.append({
+                                "name": file_info["name"],
+                                "download_url": signed_url
+                            })
 
                 full_step_record = {
                     "step_id": step_data.get("step_id", step_number),
@@ -505,6 +559,7 @@ async def solve(data: SolveRequest):
                     "output": execution_result.get("output", ""),
                     "error": execution_result.get("error", ""),
                     "plots": execution_result.get("plots", []),
+                    "files": final_files,
                 }
                 step_history.append(full_step_record)
 
@@ -590,20 +645,20 @@ async def save_chat_message(data: SaveMessageRequest):
 
 @app.post("/api/chathistory/clear")
 async def clear_chat_history(data: ChatHistoryRequest):
-    """Delete a specific session or all history."""
     user_id = data.user_id.strip()
-    
     try:
         if data.session_id:
             history_manager.delete_session(user_id, data.session_id)
-            message = f"Session {data.session_id} deleted"
+            async with httpx.AsyncClient() as client:
+                await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+            message = f"Session {data.session_id} deleted."
         else:
             history_manager.clear_all_history(user_id)
-            message = "All history cleared"
+            message = "All history cleared."
             
         return {"success": True, "message": message}
     except Exception as e:
-        logger.error(f"Clear History Error: {e}", extra={"tags": {"source": "backend"}})
+        logger.error(f"Clear History Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/log_error")
@@ -625,3 +680,57 @@ async def log_error(data: LogErrorRequest):
     except Exception as e:
         print(f"Failed to log error to Google Cloud: {e}")
         return {"status": "failed_to_log", "error": str(e)}
+
+@app.post("/api/session/close")
+async def close_session(data: ChatHistoryRequest):
+    """
+    Called when a user closes their tab. 
+    Wipes the executor files but KEEPS Firebase history.
+    """
+    if data.session_id:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Trigger the executor's cleanup only
+                await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+            return {"status": "success", "message": "Executor disk space reclaimed."}
+        except Exception as e:
+            logger.error(f"Silent cleanup failed: {e}")
+            return {"status": "error", "message": str(e)}
+    return {"status": "noop"}
+    
+def generate_signed_download_url(gcs_path: str):
+    if gcs_path == "local_test_mode" or not GCS_BUCKET_NAME:
+        return "#local-test-no-gcs-link"
+    client = get_storage_client()
+    if not client:
+        return None # Gracefully fail if not authenticated
+        
+    try:
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(gcs_path)
+        return blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=60),
+            method="GET"
+        )
+    except Exception as e:
+        logger.error(f"Failed to sign URL: {e}")
+        return None
+STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
+
+def get_user_storage_usage(user_id: str):
+    """Calculates total bytes used by a user in GCS."""
+    client = get_storage_client()
+    if not client or not GCS_BUCKET_NAME:
+        return 0
+    
+    try:
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        # Assuming files are stored as 'outputs/{user_id}/...' or 'uploads/{user_id}/...'
+        # We check all files belonging to this user
+        blobs = bucket.list_blobs(prefix=f"user_data/{user_id}/")
+        total_size = sum(blob.size for blob in blobs if blob.size)
+        return total_size
+    except Exception as e:
+        logger.error(f"Error checking storage usage: {e}")
+        return 0

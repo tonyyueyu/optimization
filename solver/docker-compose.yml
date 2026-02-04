@@ -9,28 +9,43 @@ services:
       context: .
       dockerfile: backend/Dockerfile.backend
     container_name: local-backend
-    # ✅ FIX 1: Run commands from inside the backend folder
     working_dir: /app/backend
     ports:
       - "8000:8080"
+    # This pulls your existing API keys from solver/backend/.env
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Mounts the key from your 'solver' folder into the container
+      - ./gcs-key.json:/app/gcs-key.json
     environment:
       - PORT=8080
       - EXECUTOR_HOST=http://executor:8000
+      # --- GCS ADDITIONS ---
+      - GCS_BUCKET_NAME=hippo-storage
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
 
   # ----------------------------
-  # 2. The Math Executor (Heavy Lifter)
+  # 2. The Math Executor
   # ----------------------------
   executor:
     build:
       context: .
       dockerfile: backend/Dockerfile.executor
     container_name: local-executor
-    # ✅ FIX 2: Run commands from inside the backend folder
     working_dir: /app/backend
     ports:
       - "8001:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Also mount the key here so the executor can upload generated files
+      - ./gcs-key.json:/app/gcs-key.json
     environment:
       - PORT=8000
+      # --- GCS ADDITIONS ---
+      - GCS_BUCKET_NAME=hippo-storage
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
 
   # ----------------------------
   # 3. The Vite Frontend
