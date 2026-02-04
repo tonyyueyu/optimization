@@ -369,8 +369,12 @@ async def solve(data: SolveRequest):
                                         if clean_content.startswith('{') or clean_content.startswith('['):
                                             data_obj = json.loads(clean_content)
                                             if isinstance(data_obj, dict) and 'steps' in data_obj:
-                                                steps_desc = [s.get('description', '') for s in data_obj['steps']]
-                                                content = "Solution Steps:\n" + "\n".join(f"- {d}" for d in steps_desc if d)
+                                                steps_desc = []
+                                                for s in data_obj['steps']:
+                                                    desc = s.get('description', '')
+                                                    code = s.get('code', '')
+                                                    steps_desc.append(f"- {desc}\nCode:\n{code}")
+                                                content = "Solution Steps:\n" + "\n".join(steps_desc)
                                     except:
                                         pass # Keep original content if parse fails
                                 formatted_msgs.append(f"{role}: {content}")
@@ -398,8 +402,9 @@ async def solve(data: SolveRequest):
                 - **UPLOAD ACCESS** Uploaded files are stored in `/app/uploads/` in the Docker container, use "uploads/upload_name.txt".
 
                 CRITICAL PROTOCOL:
-                1. You are NOT allowed to solve the entire problem at once.
-                2. You must output EXACTLY ONE JSON object representing the immediate next step.
+                1. **COMPLEX PROBLEMS:** YOU MUST DECOMPOSE into steps. Do NOT solve at once.
+                2. **TRIVIAL PROBLEMS** (e.g. simple graphing, sorting, basic arithmetic): You MAY solve in a single step.
+                3. You must output EXACTLY ONE JSON object representing the immediate next step.
                 3. After generating one JSON object, you must STOP immediately.
 
                 GOAL: Solve this problem: "{user_query}"
@@ -414,7 +419,9 @@ async def solve(data: SolveRequest):
                 Output of the LAST executed code block: {code_output}
 
                 INSTRUCTION:
-                1. **Step 1 Requirement:** Your first step MUST be "Problem Analysis, Feasibility Check & Data Setup". Explicitly PARAPHRASE constraints and perform "Napkin Math" (e.g. Total Demand vs Total Capacity) to check for obvious infeasibility before coding.
+                1. **Step 1 Requirement:**
+                   - **IF COMPLEX:** First step MUST be "Problem Analysis, Feasibility Check & Data Setup". Explicitly PARAPHRASE constraints and perform "Napkin Math" (e.g. Total Demand vs Total Capacity) to check for obvious infeasibility before coding.
+                   - **IF TRIVIAL:** You may skip analysis and proceed directly to generating the solution code.
                 2. For subsequent steps, validate the last executed step.
                 3. Update the to-do list.
                 4. Generate the NEXT numbered step
@@ -422,10 +429,9 @@ async def solve(data: SolveRequest):
                 6. Output strict JSON.
                 7. After obtaining the final answer, create an extra step for the summary.
                 8. FINAL STEP INSTRUCTIONS:
-                   - You MUST generate one final step to present the solution.
-                   - Set "is_final_step": true.
-                   - Put the text summary of the answer in "description".
-                   - Set "code": "" (EMPTY STRING).
+                   - Typically, create a dedicated final step with "code": "" to summarize.
+                   - **EXCEPTION FOR TRIVIAL PROBLEMS:** You may set "is_final_step": true in the SAME step where you write the code, effectively solving and summarizing in one step.
+                   - Otherwise, set "is_final_step": true, put text summary in "description", and set "code": "".
                    - Keep the exact same JSON structure.
                 JSON SCHEMA (Do not return a list, return a single object):
                 {{

@@ -613,7 +613,7 @@ function App() {
                 if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
                 if (msg.role === 'assistant') {
                     if (msg.type === 'steps' && msg.steps && Array.isArray(msg.steps)) {
-                        const stepsSummary = msg.steps.map(s => `- ${s.description}`).join('\n');
+                        const stepsSummary = msg.steps.map(s => `- ${s.description}\nCode:\n${s.code}`).join('\n');
                         return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
                     }
                     let content = msg.content;
