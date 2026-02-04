@@ -157,6 +157,36 @@ async def upload_proxy(file: UploadFile = File(...), user_id: str = Form(...)):
         print(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+OPTIMIZATION_TAGS = [
+    "Linear Programming",
+    "Mixed-Integer Programming",
+    "Non-linear Programming",
+    "Vehicle Routing Problem",
+    "Facility Location Problem",
+    "Scheduling & Timetabling",
+    "Supply Chain Optimization",
+    "Stochastic Optimization",
+    "Multi-objective Optimization",
+    "Knapsack Problem",
+    "Network Flo
+]
+
+
+# --- 1. Define Optimization Tags ---
+OPTIMIZATION_TAGS = [
+    "Linear Programming",
+    "Mixed-Integer Programming",
+    "Non-linear Programming",
+    "Vehicle Routing Problem",
+    "Facility Location Problem",
+    "Scheduling & Timetabling",
+    "Supply Chain Optimization",
+    "Stochastic Optimization",
+    "Multi-objective Optimization",
+    "Knapsack Problem",
+    "Network Flow"
+]
+
 @app.post("/api/retrieve")
 async def retrieve(data: RetrieveRequest):
     query = data.query.strip()
@@ -164,6 +194,29 @@ async def retrieve(data: RetrieveRequest):
         raise HTTPException(status_code=400, detail="Query is required")
     
     try:
+        tag_prediction_prompt = f"""
+        Given the user's math optimization query, select the 2 or 3 most relevant tags from the following list.
+        Return ONLY a JSON list of strings.
+        
+        Tags: {json.dumps(OPTIMIZATION_TAGS)}
+        Query: "{query}"
+        """
+        
+        try:
+            tag_resp = genai_client.models.generate_content(
+                model=CHAT_MODEL_NAME,
+                contents=tag_prediction_prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0
+                )
+            )
+            predicted_tags = json_repair.loads(tag_resp.text)
+            logger.info(f"Predicted tags for query: {predicted_tags}")
+        except Exception as tag_err:
+            logger.error(f"Tag prediction failed: {tag_err}")
+            predicted_tags = []
+
         try:
             embed_resp = genai_client.models.embed_content(
                 model=EMBEDDING_MODEL_NAME,
@@ -173,15 +226,29 @@ async def retrieve(data: RetrieveRequest):
                 )
             )
             query_embed = embed_resp.embeddings[0].values
-            
         except Exception as gemini_error:
-            logger.error(f"Gemini embedding failed: {str(gemini_error)}", extra={"tags": {"source": "backend"}})
+            logger.error(f"Gemini embedding failed: {str(gemini_error)}")
             return []
         
         try:
-            results = index.query(vector=query_embed, top_k=2, include_metadata=True)
+            pinecone_filter = None
+            if predicted_tags:
+                pinecone_filter = {"tag": {"$in": predicted_tags}}
+
+            results = index.query(
+                vector=query_embed, 
+                top_k=2, 
+                include_metadata=True,
+                filter=pinecone_filter
+            )
+            
+            # Fallback: If filtered results are empty, try without filter
+            if not results.get("matches") and pinecone_filter:
+                logger.info("No filtered results found, falling back to general search.")
+                results = index.query(vector=query_embed, top_k=2, include_metadata=True)
+
         except Exception as pinecone_error:
-            logger.error(f"Pinecone query failed: {pinecone_error}", extra={"tags": {"source": "backend"}})
+            logger.error(f"Pinecone query failed: {pinecone_error}")
             raise HTTPException(status_code=503, detail="Search index unavailable")
 
         res = []
@@ -196,13 +263,14 @@ async def retrieve(data: RetrieveRequest):
                         "problem": obj.get("problem"),
                         "solution": obj.get("solution"),
                         "steps": obj.get("steps"),
+                        "tags": obj.get("tags", [])
                     })
                 except json.JSONDecodeError:
                     continue
         return res 
 
     except Exception as e:
-        logger.error(f"Retrieval failed: {str(e)}", extra={"tags": {"source": "backend"}})
+        logger.error(f"Retrieval failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error during retrieval")
 
 @app.post("/api/solve")
