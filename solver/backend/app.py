@@ -248,7 +248,12 @@ async def get_references(query: str, chat_history: list):
         # --- 4. FUZZY TAG SEARCH ---
         # We use $in which acts as an 'OR' match. This matches any document 
         # that has at least ONE of the predicted tags.
-        pinecone_filter = {"tag": {"$in": predicted_tags}} if predicted_tags else None
+        pinecone_filter = {
+                "$or": [
+                    {"tags": {"$in": predicted_tags}},
+                    {"tag": {"$in": predicted_tags}}
+                ]
+            } if predicted_tags else None
         
         results = index.query(
             vector=query_embed, 
@@ -258,8 +263,8 @@ async def get_references(query: str, chat_history: list):
         )
         
         # Robust Fallback: If tags were too specific or wrong, drop them and rely on Vector Similarity
-        if not results.get("matches") or results["matches"][0]["score"] < 0.6:
-            logger.info("⚠️ Tags too restrictive or low similarity. Falling back to vector-only search.")
+        if not results.get("matches") or len(results["matches"]) == 0:
+            logger.info("⚠️ No matches found with tags. Falling back to vector-only search.")
             results = index.query(vector=query_embed, top_k=2, include_metadata=True)
         
         # --- 5. FORMAT RESULTS ---
@@ -530,10 +535,13 @@ async def solve(data: SolveRequest):
                 
                 if code_to_run:
                     try:
+                        # SAFETY CHECK: Ensure session_id is a string, never None
+                        clean_session_id = data.session_id or "fallback_session"
+                        
                         async with httpx.AsyncClient(timeout=60.0) as exe_client:
                             resp = await exe_client.post(EXECUTOR_URL, json={
                                 "code": code_to_run,
-                                "session_id": data.session_id,
+                                "session_id": clean_session_id, # Use cleaned ID
                                 "timeout": 60
                             })
                             if resp.status_code == 200:

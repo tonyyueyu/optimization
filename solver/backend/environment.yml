@@ -16,6 +16,7 @@ dependencies:
   - jupyterlab
   - google-cloud-storage
   - time
+  - typing
 
   # --- High-Performance Data & ML ---
   - polars                # <--- Industrial alternative to Pandas

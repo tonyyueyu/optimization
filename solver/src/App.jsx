@@ -9,9 +9,9 @@ import {
     useUser
 } from '@clerk/clerk-react'
 
-const API_BASE = window.location.hostname === "localhost" 
-    ? "http://localhost:8000" 
-    : "";
+const API_BASE = window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : "https://backend-service-696616516071.us-west1.run.app";
 
 
 const logErrorToBackend = async (message, stack = null, additionalData = null) => {
@@ -463,7 +463,11 @@ function App() {
     }, [currentSessionId, isSignedIn, user?.id, fetchSessionMessages]);
 
     useEffect(() => {
+        // Clear the current active run state when switching threads
         setSelectedCodeMessageIndex(null);
+        setStreamingContent(null); // <--- Add this line
+        setUploadedFileName(null);
+        setFileContext(null);
     }, [currentSessionId]);
 
     useEffect(() => {
