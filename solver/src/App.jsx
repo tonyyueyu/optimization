@@ -8,7 +8,7 @@ import {
     UserButton,
     useUser
 } from '@clerk/clerk-react'
-const isCloud = false;
+const isCloud = true;
 if (isCloud) {
     var API_BASE = "https://backend-service-696616516071.us-west1.run.app";
 } else {
