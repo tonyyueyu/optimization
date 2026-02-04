@@ -968,6 +968,11 @@ function App() {
                                             {isLoading && (
                                                 <button type="button" onClick={() => abortControllerRef.current?.abort()} className="app-header-stop-btn">Stop</button>
                                             )}
+                                            <a href="https://discord.gg/vdffZG9hES" target="_blank" rel="noopener noreferrer" className="app-header-discord-btn" title="Join our Discord" aria-label="Join our Discord community">
+                                                <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor">
+                                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A99.89,99.89,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0A105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a77.15,77.15,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.22,77,77,0,0,0,6.89,11.1A105.73,105.73,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60.6,31,54s5-11.74,11.43-11.74S54,47.41,54,54,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60.6,73.25,54s5-11.74,11.44-11.74S96.23,47.41,96.23,54,91.09,65.69,84.69,65.69Z"/>
+                                                </svg>
+                                            </a>
                                             <SignedIn>
                                                 <UserButton />
                                             </SignedIn>
