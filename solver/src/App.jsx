@@ -567,7 +567,7 @@ function App() {
                     throw new Error("Could not create session");
                 }
             } catch (e) {
-                alert("Error creating chat session.");
+                alert("Error creating chat session." + e);
                 return;
             }
         }
