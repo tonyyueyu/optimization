@@ -143,7 +143,48 @@ const Sidebar = ({
     );
 };
 
-const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent }) => {
+const RunBlock = ({ cell }) => {
+    const [isCodeVisible, setIsCodeVisible] = useState(false);
+
+    return (
+        <section className="run-block">
+            <header
+                className="run-block-head"
+                onClick={() => setIsCodeVisible(!isCodeVisible)}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                title={isCodeVisible ? "Hide code" : "Show code"}
+            >
+                <div className={`run-block-chevron ${isCodeVisible ? 'expanded' : ''}`}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                </div>
+                <span>Step {cell.stepNumber}</span>
+            </header>
+
+            <div className="run-block-content">
+                {isCodeVisible && cell.code && (
+                    <pre className="run-block-code"><code>{cell.code}</code></pre>
+                )}
+                {(cell.output || cell.error) && (
+                    <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
+                        {cell.error ? <strong>Error: </strong> : null}
+                        {cell.output || cell.error}
+                    </div>
+                )}
+                {cell.plots && cell.plots.length > 0 && (
+                    <div className="run-block-plot">
+                        {cell.plots.map((plot, plotIdx) => (
+                            <img key={plotIdx} src={`data:image/png;base64,${plot}`} alt={`Plot ${plotIdx + 1}`} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </section>
+    );
+};
+
+const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent, leftClassName, rightClassName }) => {
     const [isDragging, setIsDragging] = useState(false);
     const containerRef = useRef(null);
 
@@ -184,11 +225,11 @@ const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent }) =>
 
     return (
         <div className="app-split" ref={containerRef}>
-            <div className="code-output-panel" style={{ width: `${widthPercent}%` }}>
+            <div className={leftClassName} style={{ width: `${widthPercent}%` }}>
                 {left}
             </div>
             <div className="app-split-resizer" onMouseDown={onMouseDown} />
-            <div className="chat-panel" style={{ flex: 1 }}>
+            <div className={rightClassName} style={{ flex: 1 }}>
                 {right}
             </div>
         </div>
@@ -716,27 +757,7 @@ function App() {
         }
     };
 
-    const renderRunBlock = (cell, idx) => (
-        <section key={idx} className="run-block">
-            <header className="run-block-head">Step {cell.stepNumber}</header>
-            {cell.code && (
-                <pre className="run-block-code"><code>{cell.code}</code></pre>
-            )}
-            {(cell.output || cell.error) && (
-                <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
-                    {cell.error ? <strong>Error: </strong> : null}
-                    {cell.output || cell.error}
-                </div>
-            )}
-            {cell.plots && cell.plots.length > 0 && (
-                <div className="run-block-plot">
-                    {cell.plots.map((plot, plotIdx) => (
-                        <img key={plotIdx} src={`data:image/png;base64,${plot}`} alt={`Plot ${plotIdx + 1}`} />
-                    ))}
-                </div>
-            )}
-        </section>
-    );
+
 
     const renderStepCard = (step, { isActive = false, isSummary = false } = {}) => (
         <div
@@ -825,7 +846,7 @@ function App() {
                             <polyline points="8 6 2 12 8 18" />
                         </svg>
                     </span>
-                    <span>{isSelected ? 'Showing in code panel' : 'View code in left panel'}</span>
+                    <span>{isSelected ? 'Showing in code panel' : 'View code in right panel'}</span>
                 </button>
             )}
             {message.summary && (
@@ -912,33 +933,9 @@ function App() {
                         <ResizableSplitLayout
                             widthPercent={codePanelWidth}
                             setWidthPercent={setCodePanelWidth}
+                            leftClassName="chat-panel"
+                            rightClassName="code-output-panel"
                             left={
-                                <>
-                                    <div className="code-output-header">
-                                        <div className="code-output-header-top">
-                                            <div className="workspace-code-dots">
-                                                <span className="ws-dot ws-dot-red" />
-                                                <span className="ws-dot ws-dot-amber" />
-                                                <span className="ws-dot ws-dot-green" />
-                                            </div>
-                                            <span className="code-output-label">Code output</span>
-                                        </div>
-                                        {messages.some(m => m.role === 'assistant' && m.type === 'steps') && (
-                                            <p className="code-output-hint">Use « View code in left panel » on any response in the chat to see that run here.</p>
-                                        )}
-                                    </div>
-                                    <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
-                                        {codeOutputCells.length > 0 ? (
-                                            codeOutputCells.map(renderRunBlock)
-                                        ) : (
-                                            <div className="workspace-code-placeholder">
-                                                {streamingContent ? 'Waiting for output…' : 'Code from your last run will appear here.'}
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            }
-                            right={
                                 <>
                                     <header className="app-header">
                                         <div className="app-header-left">
@@ -1029,6 +1026,27 @@ function App() {
                                                 </svg>
                                             </button>
                                         </div>
+                                    </div>
+                                </>
+                            }
+                            right={
+                                <>
+                                    <div className="code-output-header">
+                                        <div className="code-output-header-top">
+                                            <span className="code-output-label">Code output</span>
+                                        </div>
+                                        {messages.some(m => m.role === 'assistant' && m.type === 'steps') && (
+                                            <p className="code-output-hint">Use « View code in right panel » on any response in the chat to see that run here.</p>
+                                        )}
+                                    </div>
+                                    <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
+                                        {codeOutputCells.length > 0 ? (
+                                            codeOutputCells.map((cell, idx) => <RunBlock key={idx} cell={cell} />)
+                                        ) : (
+                                            <div className="workspace-code-placeholder">
+                                                {streamingContent ? 'Waiting for output…' : 'Code from your last run will appear here.'}
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             }
