@@ -315,6 +315,11 @@ function App() {
                 setSessions(sessionsArr);
                 return sessionsArr;
             }
+            else {
+                const errorText = await res.text(); // Get the actual error message
+    console.error("Backend Error Text:", errorText);
+    throw new Error(`Server responded with ${res.status}`);
+            }
         } catch (e) {
             console.error("Failed to fetch sessions", e);
         }
