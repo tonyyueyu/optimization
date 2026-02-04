@@ -8,9 +8,12 @@ import {
     UserButton,
     useUser
 } from '@clerk/clerk-react'
-
-const API_BASE = "https://backend-service-696616516071.us-west1.run.app" || "http://localhost:8000";
-
+const isCloud = false;
+if (isCloud) {
+    var API_BASE = "https://backend-service-696616516071.us-west1.run.app";
+} else {
+    var API_BASE = "http://localhost:8000";
+}
 const logErrorToBackend = async (message, stack = null, additionalData = null) => {
     try {
         await fetch(`${API_BASE}/api/log_error`, {
