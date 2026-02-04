@@ -100,6 +100,7 @@ class SolveRequest(BaseModel):
     user_query: str
     user_id: Optional[str] = None 
     session_id: Optional[str] = None 
+    chat_history: Optional[List[Dict[str, str]]] = None
 
 class ChatHistoryRequest(BaseModel):
     user_id: str
@@ -341,7 +342,20 @@ async def solve(data: SolveRequest):
                 yield send_sse_event("step_start", {"step_number": step_number, "status": "generating"})
 
                 chat_context = ""
-                if data.user_id and data.session_id:
+                if data.chat_history:
+                    try:
+                        formatted_msgs = []
+                        for m in data.chat_history[-10:]:
+                            role = m.get('role', '').upper()
+                            content = m.get('content', '')
+                            formatted_msgs.append(f"{role}: {content}")
+                        
+                        formatted_history = "\n".join(formatted_msgs)
+                        chat_context = f"PREVIOUS CONVERSATION HISTORY:\n{formatted_history}\n"
+                    except Exception as e:
+                        logger.error(f"Failed to process provided chat_history: {e}")
+
+                elif data.user_id and data.session_id:
                     try:
                         history_msgs = history_manager.fetch_session_messages(data.user_id, data.session_id)
                         if history_msgs:

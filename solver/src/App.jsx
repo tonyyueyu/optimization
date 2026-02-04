@@ -609,6 +609,22 @@ function App() {
 
             setStreamingContent(prev => ({ ...prev, status: 'solving' }));
 
+            const formattedHistory = messages.map(msg => {
+                if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
+                if (msg.role === 'assistant') {
+                    if (msg.type === 'steps' && msg.steps && Array.isArray(msg.steps)) {
+                        const stepsSummary = msg.steps.map(s => `- ${s.description}`).join('\n');
+                        return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
+                    }
+                    let content = msg.content;
+                    if (typeof content !== 'string') {
+                        content = JSON.stringify(content) || '';
+                    }
+                    return { role: 'assistant', content: content };
+                }
+                return null;
+            }).filter(Boolean);
+
             const response = await fetch(`${API_BASE}/api/solve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -617,7 +633,8 @@ function App() {
                     second_problem: second,
                     user_query: finalQuery,
                     user_id: user?.id || "anonymous",
-                    session_id: targetSessionId
+                    session_id: targetSessionId,
+                    chat_history: formattedHistory
                 }),
                 signal: abortControllerRef.current.signal
             });
