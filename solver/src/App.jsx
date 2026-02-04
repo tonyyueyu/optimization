@@ -299,32 +299,35 @@ function App() {
     }, [input]);
 
     const fetchSessions = useCallback(async (userId) => {
-        try {
-            const res = await fetch(`${API_BASE}/api/sessions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: userId })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                const sessionsArr = Object.entries(data.sessions || {}).map(([id, meta]) => ({
-                    id,
-                    ...meta
-                })).sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+    try {
+        const res = await fetch(`${API_BASE}/api/sessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId })
+        });
 
-                setSessions(sessionsArr);
-                return sessionsArr;
-            }
-            else {
-                const errorText = await res.text(); // Get the actual error message
-    console.error("Backend Error Text:", errorText);
-    throw new Error(`Server responded with ${res.status}`);
-            }
-        } catch (e) {
-            console.error("Failed to fetch sessions", e);
+        const rawText = await res.text();
+        console.log("RAW RESPONSE:", rawText);
+
+        if (!res.ok) {
+            throw new Error(`Server responded with ${res.status}`);
         }
+
+        const data = JSON.parse(rawText);
+
+        const sessionsArr = Object.entries(data.sessions || {})
+            .map(([id, meta]) => ({ id, ...meta }))
+            .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+
+        setSessions(sessionsArr);
+        return sessionsArr;
+
+    } catch (e) {
+        console.error("Failed to fetch sessions", e);
         return [];
-    }, []);
+    }
+}, []);
+
 
     const fetchSessionMessages = useCallback(async (userId, sessionId) => {
         setHistoryLoading(true);
