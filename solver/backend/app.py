@@ -168,22 +168,6 @@ OPTIMIZATION_TAGS = [
     "Stochastic Optimization",
     "Multi-objective Optimization",
     "Knapsack Problem",
-    "Network Flo
-]
-
-
-# --- 1. Define Optimization Tags ---
-OPTIMIZATION_TAGS = [
-    "Linear Programming",
-    "Mixed-Integer Programming",
-    "Non-linear Programming",
-    "Vehicle Routing Problem",
-    "Facility Location Problem",
-    "Scheduling & Timetabling",
-    "Supply Chain Optimization",
-    "Stochastic Optimization",
-    "Multi-objective Optimization",
-    "Knapsack Problem",
     "Network Flow"
 ]
 
