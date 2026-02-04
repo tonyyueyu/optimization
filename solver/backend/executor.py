@@ -69,6 +69,30 @@ def get_local_session_usage(session_id: str):
 
 # --- Endpoints ---
 
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...), session_id: str = Form(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Empty filename")
+
+    # 1. Check 1.5GB limit locally
+    current_usage = get_local_session_usage(session_id)
+    if current_usage + (file.size or 0) > STORAGE_LIMIT_BYTES:
+        raise HTTPException(status_code=413, detail="Session storage limit (1.5GB) exceeded.")
+
+    # 2. Save to session-specific uploads folder
+    _, upload_dir, _ = get_session_paths(session_id)
+    file_path = os.path.join(upload_dir, file.filename)
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {"status": "success", "filename": file.filename, "path": f"uploads/{file.filename}"}
+    except Exception as e:
+        print(f"UPLOAD FAILED for {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+
+# --- Endpoints ---
+
 @app.post("/execute")
 async def execute(request: CodeRequest):
     session_root, _, export_dir = get_session_paths(request.session_id)
