@@ -166,7 +166,11 @@ const RunBlock = ({ cell }) => {
                         <polyline points="9 18 15 12 9 6" />
                     </svg>
                 </div>
-                <span>Step {cell.stepNumber}</span>
+                <span>
+                    {Number.isInteger(cell.stepNumber) || (typeof cell.stepNumber === 'string' && cell.stepNumber.match(/^\d+$/))
+                        ? `Step ${cell.stepNumber}`
+                        : cell.stepNumber}
+                </span>
             </header>
 
             <div className="run-block-content">
@@ -936,7 +940,13 @@ function App() {
             <div className="run-steps">
                 {message.steps.map((step, index) => {
                     const isFinalSummary = index === message.steps.length - 1 && !step.code;
-                    return renderStepCard(step, { isSummary: isFinalSummary });
+
+                    let stepToRender = step;
+                    if (message.steps.length === 1 && !isFinalSummary) {
+                        stepToRender = { ...step, title: 'Solution' };
+                    }
+
+                    return renderStepCard(stepToRender, { isSummary: isFinalSummary });
                 })}
             </div>
         </div>
@@ -1025,6 +1035,12 @@ function App() {
                     messages.forEach((msg, idx) => {
                         if (msg.role === 'assistant' && msg.type === 'steps' && msg.steps?.length) {
                             const cells = extractCodeCells(msg.steps);
+
+                            // IF SINGLE STEP, Rename to "Solution"
+                            if (msg.steps.length === 1 && cells.length === 1) {
+                                cells[0].stepNumber = "Solution";
+                            }
+
                             if (cells.length > 0) {
                                 responseCount++;
                                 codeGroups.push({

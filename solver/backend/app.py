@@ -580,7 +580,11 @@ async def solve(data: SolveRequest):
                 yield send_sse_event("step_complete", {"step": full_step_record, "step_number": step_number})
 
                 if step_data.get("is_final_step", False):
-                    finished = True
+                    if execution_result.get("error"):
+                         logger.warning(f"Step marked final but failed with error: {execution_result['error']}. Continuing loop.")
+                         finished = False
+                    else:
+                        finished = True
                 current_loop += 1
 
             except Exception as loop_error:
