@@ -59,7 +59,7 @@ else:
     EXECUTOR_HOST = "http://executor:8000"
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 CHAT_MODEL_NAME = "gemini-3-flash-preview"
-EMBEDDING_MODEL_NAME = "text-embedding-004"
+EMBEDDING_MODEL_NAME = "models/gemini-embedding-001"
 storage_client = None 
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 # GLOBAL CLIENTS

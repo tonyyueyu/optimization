@@ -185,3 +185,6 @@ async def cleanup_old_sessions():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(cleanup_old_sessions())
+    
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
