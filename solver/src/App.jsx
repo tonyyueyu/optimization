@@ -286,6 +286,8 @@ function App() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [sessionToDelete, setSessionToDelete] = useState(null);
+    const [editingIndex, setEditingIndex] = useState(null);
+    const [editValue, setEditValue] = useState("");
 
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
@@ -420,7 +422,7 @@ function App() {
 
             setMessages(formatted);
         } catch (e) {
-            logErrorToBackend(`History Fetch Error: ${e.message}`, e.stack, { userId: userUID });
+            logErrorToBackend(`History Fetch Error: ${e.message}`, e.stack, { userId: user?.id });
             setHistoryError(e.message);
             setMessages([]);
         } finally {
@@ -602,12 +604,53 @@ function App() {
         return events
     }
 
-    const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+    const handleModifyPrompt = async (index, newQuery) => {
+    console.log("Modifying prompt at index:", index);
+    
+    // 1. Close the edit UI
+    setEditingIndex(null);
+
+    // 2. Prepare the truncated history locally
+    const truncatedHistory = messages.slice(0, index);
+    setMessages(truncatedHistory);
+
+    try {
+        // 3. ONLY call the backend if we actually have a session to truncate
+        // This allows Guest users and new chats to work without errors
+        if (currentSessionId && isSignedIn) {
+            await fetch(`${API_BASE}/api/prompt/modify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: user?.id,
+                    session_id: currentSessionId,
+                    message_index: index,
+                    new_query: newQuery
+                })
+            });
+        }
+
+        // 4. Trigger the new search
+        // Pass 'true' as the third argument to bypass the isLoading lock
+        await handleSend(newQuery, truncatedHistory, true);
+
+    } catch (e) {
+        console.error("Modify error:", e);
+        // If it fails, we still want to stop the loading spinner
+        setIsLoading(false); 
+    }
+};
+
+    const handleSend = async (overrideQuery = null, overrideHistory = null, isRetry = false) => {
+        const queryToUse = (overrideQuery !== null) ? overrideQuery : input;
+
+        // CHANGE: Allow the call if isRetry is true
+        if (!queryToUse.trim() || (isLoading && !isRetry)) return;
+
+        setIsLoading(true); // Start loading here
 
         const isAnonymous = !isSignedIn || !user?.id;
-
-        const userMessageText = input.trim();
+        const userMessageText = queryToUse.trim();
 
         let targetSessionId = currentSessionId;
         if (!isAnonymous && !targetSessionId) {
@@ -632,7 +675,8 @@ function App() {
         }
 
         const userMessage = { role: 'user', content: userMessageText };
-        setMessages(prev => [...prev, userMessage]);
+        const baseHistory = overrideHistory !== null ? overrideHistory : messages;
+        setMessages([...baseHistory, userMessage]); 
         setInput('');
 
         let finalQuery = userMessageText;
@@ -657,34 +701,30 @@ function App() {
         abortControllerRef.current = new AbortController();
 
         try {
-            setStreamingContent(prev => ({
-                ...(prev || { steps: [], currentStep: null, currentTokens: '' }),
-                status: 'solving'
-            }));
-
-            const formattedHistory = messages.map(msg => {
-                if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
-                if (msg.role === 'assistant') {
-                    if (msg.type === 'steps' && msg.steps && Array.isArray(msg.steps)) {
-                        const stepsSummary = msg.steps.map(s => `- ${s.description}\nCode:\n${s.code}`).join('\n');
-                        return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
-                    }
-                    return { role: 'assistant', content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) };
+        // Use baseHistory here instead of messages
+        const formattedHistory = baseHistory.map(msg => {
+            if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
+            if (msg.role === 'assistant') {
+                if (msg.type === 'steps') {
+                    const stepsSummary = msg.steps.map(s => `- ${s.description}\nCode:\n${s.code}`).join('\n');
+                    return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
                 }
-                return null;
-            }).filter(Boolean);
+                return { role: 'assistant', content: msg.content };
+            }
+            return null;
+        }).filter(Boolean);
 
-            const response = await fetch(`${API_BASE}/api/solve`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_query: finalQuery,
-                    user_id: user?.id,
-                    session_id: targetSessionId,
-                    chat_history: formattedHistory
-                }),
-                signal: abortControllerRef.current.signal
-            });
+        const response = await fetch(`${API_BASE}/api/solve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_query: finalQuery,
+                user_id: user?.id,
+                session_id: targetSessionId,
+                chat_history: formattedHistory // Now uses the correct truncated history
+            }),
+            signal: abortControllerRef.current.signal
+        });
 
             if (!response.ok) throw new Error('Failed to get solution');
 
@@ -915,14 +955,13 @@ function App() {
 
     const renderMessageContent = (message, messageIndex = null) => {
         if (message.role === 'assistant' && message.type === 'steps' && message.steps?.length) {
-            return renderAssistantSteps(message, {
-                messageIndex,
-            });
+            return renderAssistantSteps(message, { messageIndex });
         }
         if (message.role === 'assistant') {
             return renderPlainText(message.content);
         }
-        return renderUserMessage(message.content);
+        // PASS THE INDEX HERE
+        return renderUserMessage(message.content, messageIndex);
     }
 
     const renderAssistantSteps = (message, { messageIndex = null } = {}) => (
@@ -948,9 +987,55 @@ function App() {
         </div>
     )
 
-    const renderUserMessage = (text = '') => (
-        <pre className="user-message-text">{text}</pre>
-    )
+    const renderUserMessage = (text = '', index) => {
+        const isEditing = editingIndex === index;
+
+        if (isEditing) {
+            return (
+                <div className="edit-prompt-box">
+                    <textarea
+                        className="edit-prompt-textarea"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        autoFocus
+                    />
+                    <div className="edit-prompt-actions">
+                        <button 
+                            className="btn-save" 
+                            type="button" 
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleModifyPrompt(index, editValue);
+                            }}
+                        >
+                            Save & Run
+                        </button>
+                        <button className="btn-cancel" onClick={() => setEditingIndex(null)}>Cancel</button>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="user-message-container">
+                <pre className="user-message-text">{text}</pre>
+                <button 
+                    className="edit-button" 
+                    onClick={() => {
+                        setEditingIndex(index);
+                        setEditValue(text);
+                    }}
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    <span>Edit</span>
+                </button>
+            </div>
+        );
+    }
     useEffect(() => {
         // We only want to attempt cleanup if there is an active session
         if (!currentSessionId) return;

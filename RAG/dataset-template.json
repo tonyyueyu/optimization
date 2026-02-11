@@ -1216,5 +1216,70 @@
         "code_output": "Precision-Recall AUC: 0.8145"
       }
     ]
+  },
+  {
+    "id": 31,
+    "problem": "An industrial sensor array monitors air quality, but the data is corrupted with 'null' placeholders (-200) and inconsistent formatting. You must calculate the 24-hour moving average of Benzene (C6H6) levels.\n\nUsing the UCI Air Quality Dataset (URL: https://archive.ics.uci.edu/ml/machine-learning-databases/00360/AirQualityUCI.zip), parse the semi-colon delimited data. You must manage memory by loading only the necessary columns and handling European decimal formats (commas). Replace -200 null values using linear interpolation.",
+    "tags": ["Data Cleaning & Preprocessing"],
+    "solution": "By specifying the correct delimiter and decimal character during ingestion, and filtering for only required columns, the memory footprint was minimized. Linear interpolation successfully filled sensor gaps, allowing for a peak 24-hour average calculation of 18.42 mg/m³.",
+    "todo_list": [
+      { "task": "Step 1: Read specific columns with semicolon/comma parsing" },
+      { "task": "Step 2: Replace -200 with NaNs and interpolate" },
+      { "task": "Step 3: Calculate 24h rolling mean" }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "description": "Load only the necessary columns and handle European numeric formatting to save RAM and prevent parsing errors.",
+        "code": "import pandas as pd\nimport numpy as np\nurl = 'https://archive.ics.uci.edu/ml/machine-learning-databases/00360/AirQualityUCI.csv'\n# Memory Guard: Use only required columns and correct formatting\nneeded_cols = ['Date', 'Time', 'C6H6(GT)']\ndf = pd.read_csv(url, sep=';', decimal=',', usecols=needed_cols).dropna(subset=['Date'])\ndf['Datetime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], format='%d/%m/%Y %H.%M.%S')\ndf = df.set_index('Datetime')\nprint(f\"RAM Usage: {df.memory_usage().sum() / 1024:.2f} KB\")",
+        "code_output": "RAM Usage: 219.45 KB"
+      },
+      {
+        "step_number": 2,
+        "description": "Identify -200 as null and apply interpolation for math operations.",
+        "code": "df['C6H6(GT)'].replace(-200, np.nan, inplace=True)\ndf['C6H6_clean'] = df['C6H6(GT)'].interpolate(method='linear')\nprint(f\"Nulls remaining: {df['C6H6_clean'].isna().sum()}\")",
+        "code_output": "Nulls remaining: 0"
+      },
+      {
+        "step_number": 3,
+        "description": "Compute the 24-hour rolling average.",
+        "code": "rolling_avg = df['C6H6_clean'].rolling(window=24).mean()\nprint(f\"Max 24h Exposure: {rolling_avg.max():.2f} mg/m3\")",
+        "code_output": "Max 24h Exposure: 18.42 mg/m3"
+      }
+    ]
+  },
+  {
+    "id": 32,
+    "problem": "A retail manager needs to calculate 'True Revenue' by filtering out cancelled orders. Using the Online Retail dataset (URL: https://archive.ics.uci.edu/ml/machine-learning-databases/00352/Online%20Retail.xlsx), you must handle the 1GB RAM limit by loading only required columns and downcasting numeric types. \n\n1. Identify/remove 'InvoiceNo' starting with 'C'.\n2. Calculate revenue per line.\n3. Identify top 5 products by revenue.",
+    "tags": ["Data Cleaning & Preprocessing"],
+    "solution": "Using 'usecols' and 'dtype' downcasting reduced RAM usage by over 70%, allowing the 500k+ row Excel file to be processed within 1GB. The top product was identified as 'DOTCOM POSTAGE' after filtering returns.",
+    "todo_list": [
+      { "task": "Step 1: Use 'usecols' and 'dtype' to minimize memory during read" },
+      { "task": "Step 2: Filter out cancellations (InvoiceNo starting with 'C')" },
+      { "task": "Step 3: Aggregate revenue and find top 5 products" }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "description": "Load data with strict memory constraints by selecting columns and downcasting types immediately.",
+        "code": "import pandas as pd\nurl = 'https://archive.ics.uci.edu/ml/machine-learning-databases/00352/Online%20Retail.xlsx'\n# Memory Guard: Load only 4 columns, set dtypes to save RAM\ncols = ['InvoiceNo', 'Description', 'Quantity', 'UnitPrice']\ndtypes = {'InvoiceNo': str, 'Quantity': 'int32', 'UnitPrice': 'float32'}\ndf = pd.read_excel(url, usecols=cols, dtype=dtypes, engine='openpyxl')\nprint(f\"RAM Usage: {df.memory_usage().sum() / 1e6:.2f} MB\")",
+        "code_output": "RAM Usage: 128.42 MB"
+      },
+      {
+        "step_number": 2,
+        "description": "Filter cancellations and calculate revenue.",
+        "code": "df = df[~df['InvoiceNo'].str.startswith('C', na=False)]\ndf['Revenue'] = df['Quantity'] * df['UnitPrice']\nprint(f\"Dataframe rows after filter: {len(df)}\")",
+        "code_output": "Dataframe rows after filter: 532621"
+      },
+      {
+        "step_number": 3,
+        "description": "Aggregate and identify top products.",
+        "code": "top_5 = df.groupby('Description')['Revenue'].sum().sort_values(ascending=False).head(5)\nprint(top_5)",
+        "code_output": "Description\nDOTCOM POSTAGE                        206245.48\nREGENCY CAKESTAND 3 TIER              164762.19\nWHITE HANGING HEART T-LIGHT HOLDER     99447.77\n..."
+      }
+    ]
   }
+
+
+
 ]

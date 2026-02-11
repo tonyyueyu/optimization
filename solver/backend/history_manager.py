@@ -103,3 +103,29 @@ class HistoryManager:
     def clear_all_history(self, user_id: str):
         """Deletes everything for a user."""
         self._user_ref(user_id).delete()
+    # Add this method to the HistoryManager class in history_manager.py
+
+    def truncate_session(self, user_id: str, session_id: str, index: int):
+        """
+        Deletes all messages from a specific index onwards.
+        If index is 2, it keeps messages 0 and 1, and deletes 2, 3, 4...
+        """
+        messages_ref = self._user_ref(user_id).child(session_id).child("messages")
+        data = messages_ref.get()
+        
+        if not data:
+            return
+
+        # Firebase returns a dict, we need to sort keys by the timestamp inside the values
+        # or by the push-ID (which is chronological)
+        sorted_keys = sorted(data.keys(), key=lambda k: data[k].get("timestamp", ""))
+        
+        keys_to_delete = sorted_keys[index:]
+        
+        for key in keys_to_delete:
+            messages_ref.child(key).delete()
+            
+        # Update metadata
+        self._user_ref(user_id).child(session_id).child("metadata").update({
+            "last_updated": datetime.utcnow().isoformat()
+        })

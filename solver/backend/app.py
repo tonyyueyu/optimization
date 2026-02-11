@@ -127,6 +127,12 @@ class LogErrorRequest(BaseModel):
     stack_trace: Optional[str] = None
     user_id: Optional[str] = None
     additional_data: Optional[Dict[str, Any]] = None
+    
+class ModifyPromptRequest(BaseModel):
+    user_id: str
+    session_id: str
+    message_index: int
+    new_query: str
 
 
 # -------------------- Helper Functions --------------------
@@ -200,7 +206,8 @@ OPTIMIZATION_TAGS = [
     "Deep Learning (Neural Networks)",
     "Natural Language Processing (NLP)",
     "CAD-Integrated Optimization",
-    "Geometric Containment & Rotation"
+    "Geometric Containment & Rotation",
+    "Data Cleaning & Preprocessing",
   ]# --- Updated app.py logic ---
 
 async def get_references(query: str, chat_history: list):
@@ -291,6 +298,18 @@ def format_reference(data):
     """Formats the JSON metadata into the string Gemini expects."""
     if not data: return ""
     return f"PROBLEM: {data.get('problem')}\nSTEPS: {json.dumps(data.get('steps'))}"
+
+@app.post("/api/prompt/modify")
+async def modify_prompt(data: ModifyPromptRequest):
+    try:
+        history_manager.truncate_session(data.user_id, data.session_id, data.message_index)
+        async with httpx.AsyncClient() as client:
+            await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+        
+        return {"success": True}  # Change 'true' to 'True'
+    except Exception as e:
+        logger.error(f"Modify Prompt Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
@@ -438,11 +457,20 @@ async def solve(data: SolveRequest):
                 - **EFFICIENCY:** Avoid 3-index variables (e.g., x[i,j,k]) for Routing problems if a 2-index formulation (x[i,j]) suffices.
                 - **UPLOAD ACCESS** Uploaded files are stored in `/app/uploads/` in the Docker container, use "uploads/upload_name.txt".
 
+                CRITICAL: ENVIRONMENT CONSTRAINTS
+                - RAM Limit: 1,000 MB (1GB). Large files will cause Out-Of-Memory (OOM) errors.
+                - Execution Limit: 60 seconds.
+                MANDATORY MEMORY-EFFICIENT STRATEGIES:
+                - Initial Inspection: Always read the first 5-10 rows first (nrows=10) to identify column names and the "messy" data formats (e.g., currency symbols, null placeholders).
+                - Column Pruning: Never load the full dataset. Use the usecols parameter in pd.read_csv or pd.read_excel to load only the specific columns required for the math.
+                - Chunking: For files > 50MB, use chunksize to process data in blocks of 10,000 rows, performing aggregations (like .sum() or .count()) per chunk.
+                - Downcasting: Cast numeric data to smaller types immediately (e.g., float32 instead of float64) using pd.to_numeric().
+                - Avoid Excel Engines: If a CSV version of a dataset is available, use it. If you must use Excel, use engine='openpyxl' but limit nrows strictly to 50,000.
+                
                 CRITICAL PROTOCOL:
                 1. **COMPLEX PROBLEMS:** YOU MUST DECOMPOSE into steps. Do NOT solve at once.
-                2. **TRIVIAL PROBLEMS** (e.g. simple graphing, sorting, basic arithmetic): You MAY solve in a single step.
-                3. You must output EXACTLY ONE JSON object representing the immediate next step.
-                3. After generating one JSON object, you must STOP immediately.
+                2. **TRIVIAL PROBLEMS** (e.g. simple graphing, sorting, basic arithmetic): You MAY solve in a single step but don't set as final step parameter because errors may arise.
+                3. Do not set is final step to true until the code output succeeds
                 
                 DIRECTORY & FILE ACCESS:
                 - Your working directory is the root of the current session.
@@ -748,3 +776,4 @@ def get_user_storage_usage(user_id: str):
     except Exception as e:
         logger.error(f"Error checking storage usage: {e}")
         return 0
+

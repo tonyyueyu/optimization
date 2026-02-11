@@ -33,7 +33,7 @@ class PersistentKernel:
 
         while True:
             try:
-                msg = self.kc.get_iopub_msg(timeout=10)
+                msg = self.kc.get_iopub_msg(timeout=120)
 
                 # 1. Capture standard output
                 if msg['msg_type'] == 'stream':

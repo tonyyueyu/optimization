@@ -1339,3 +1339,87 @@ body.resizing .app-split-resizer::after {
   align-items: center;
   color: #0d9488;
 }
+/* Container for user message and edit button */
+.user-message-container {
+    position: relative;
+    padding-right: 40px;
+}
+
+/* Edit button that appears on hover */
+.edit-button {
+    position: absolute;
+    right: 0;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #333;
+    border: 1px solid #444;
+    color: #ccc;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0; /* Hidden by default */
+    transition: opacity 0.2s;
+}
+
+.message.user:hover .edit-button {
+    opacity: 1; /* Show on hover */
+}
+
+/* The Inline Text Bar (Editing UI) */
+.edit-prompt-box {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    background: #222;
+    border: 1px solid #007bff;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 10px 0;
+}
+
+.edit-prompt-textarea {
+    background: transparent;
+    color: white;
+    border: none;
+    outline: none;
+    resize: vertical;
+    min-height: 60px;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.edit-prompt-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.btn-save {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-cancel {
+    background: #444;
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-save:hover {
+    background: #1d4ed8 !important;
+}
+
+.btn-save:active {
+    transform: scale(0.98);
+}

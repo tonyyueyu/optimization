@@ -28,6 +28,9 @@ dependencies:
   - torchvision
   - jax                   # <--- Google's JIT-compiled Numerical Lib
   - jaxlib
+  - openpyxl
+  - seaborn
+  - plotly
 
   # --- Math & Data Science (Legacy Support) ---
   - numpy

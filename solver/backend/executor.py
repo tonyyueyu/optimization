@@ -29,7 +29,7 @@ storage_client = None
 class CodeRequest(BaseModel):
     code: str
     session_id: str  # Made mandatory for isolation
-    timeout: int = 30
+    timeout: int = 120
 
 # --- Helpers ---
 def get_storage_client():
