@@ -1,11 +1,44 @@
 steps:
+  # 1. Build the Image with a unique tag
   - name: 'gcr.io/cloud-builders/docker'
     args: 
       - 'build'
       - '-t'
-      - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service' 
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service' # Changed name
       - '-f'
       - 'Dockerfile.executor'
-      - '.'
+      - '.' # Assumes you are running this FROM the backend folder
+
+  # 2. Push the unique image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service']
+
+  # 3. Deploy to Cloud Run with a unique service name
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'executor-service-test' # UNIQUE SERVICE NAME
+      - '--image'
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service'
+      - '--region'
+      - 'us-west1'
+      - '--allow-unauthenticated'
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'executor-service-test'
+      - '--image'
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service'
+      - '--region'
+      - 'us-west1'
+      - '--allow-unauthenticated'
+      # ADD THESE FLAGS:
+      - '--set-env-vars'
+      - 'GCS_BUCKET_NAME=hippo-storage,GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json'
+
 images:
   - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service'
