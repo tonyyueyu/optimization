@@ -499,8 +499,8 @@ html,
 
 /* User message */
 .user-message-text {
-  margin-left: auto;
-  max-width: 70%;
+  /* Layout handled by container */
+  width: 100%;
   padding: 14px 20px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1395,87 +1395,142 @@ body.resizing .app-split-resizer::after {
   align-items: center;
   color: #0d9488;
 }
+
 /* Container for user message and edit button */
 .user-message-container {
-    position: relative;
-    padding-right: 40px;
+  position: relative;
+  width: fit-content;
+  max-width: 70%;
+  margin-left: auto;
 }
 
-/* Edit button that appears on hover */
+/* Edit button that appears on hover - positioned left of bubble */
 .edit-button {
-    position: absolute;
-    right: 0;
-    top: 0;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: #333;
-    border: 1px solid #444;
-    color: #ccc;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    cursor: pointer;
-    opacity: 0; /* Hidden by default */
-    transition: opacity 0.2s;
+  position: absolute;
+  top: 50%;
+  left: -36px;
+  right: auto;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s ease;
+  padding: 0;
+  margin: 0;
+}
+
+.edit-button span {
+  display: none;
+  /* Hide text, icon only */
+}
+
+.edit-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .message.user:hover .edit-button {
-    opacity: 1; /* Show on hover */
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
 }
 
-/* The Inline Text Bar (Editing UI) */
+.edit-button:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* The Inline Text Bar (Editing UI) - Redesigned */
 .edit-prompt-box {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    background: #222;
-    border: 1px solid #007bff;
-    border-radius: 8px;
-    padding: 8px;
-    margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  /* It inherits width from container (fit-content), but when editing we probably want it full width of container? 
+     Actually user-message-container has max-width 70%. 
+     Let's make sure edit box looks good. */
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  position: relative;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .edit-prompt-textarea {
-    background: transparent;
-    color: white;
-    border: none;
-    outline: none;
-    resize: vertical;
-    min-height: 60px;
-    font-family: inherit;
-    font-size: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  width: 100%;
 }
 
 .edit-prompt-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .btn-save {
-    background: #007bff;
-    color: white;
-    border: none;
-    padding: 4px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.btn-cancel {
-    background: #444;
-    color: white;
-    border: none;
-    padding: 4px 12px;
-    border-radius: 4px;
-    cursor: pointer;
+  padding: 6px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
 .btn-save:hover {
-    background: #1d4ed8 !important;
+  background: var(--accent-hover) !important;
 }
 
 .btn-save:active {
-    transform: scale(0.98);
+  transform: scale(0.98);
+}
+
+.btn-cancel {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-cancel:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
 }
