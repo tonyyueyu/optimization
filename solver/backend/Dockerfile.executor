@@ -20,7 +20,7 @@ RUN micromamba run -n base python -m ipykernel install --user --name=math_opt_ke
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-EXPOSE 8000
+EXPOSE 8080
 
 # CRITICAL CHANGE: Use "micromamba run" to activate the environment
 CMD micromamba run -n base uvicorn executor:app --host 0.0.0.0 --port ${PORT:-8080}

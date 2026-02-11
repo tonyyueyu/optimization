@@ -52,7 +52,7 @@ logger = setup_logger()
 # 3. Safe Global State
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-isCloud = False
+isCloud = True
 if isCloud:
     EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
 else:
