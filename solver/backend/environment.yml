@@ -1,72 +1,53 @@
-# name: base
-# channels:
-#   - conda-forge
-#   - pytorch
-# dependencies:
-#   # --- Core Runtime ---
-#   - python=3.10
-#   - pip
-
-#   # --- Web & Kernel Infrastructure ---
-#   - fastapi
-#   - uvicorn
-#   - python-multipart
-#   - jupyter_client
-#   - ipykernel
-#   - jupyterlab
-#   - google-cloud-storage
-#   - time
-#   - typing
-
-#   # --- High-Performance Data & ML ---
-#   - polars                # <--- Industrial alternative to Pandas
-#   - pyarrow               # <--- Needed for Polars/Parquet performance
-#   - xgboost               # <--- Industrial Gradient Boosting
-#   - lightgbm              # <--- Ultra-fast Gradient Boosting
-#   - pytorch               # <--- Deep Learning & Tensor Ops
-#   - cpuonly               # <--- Ensures Docker stays light (no CUDA)
-#   - torchvision
-#   - jax                   # <--- Google's JIT-compiled Numerical Lib
-#   - jaxlib
-#   - openpyxl
-#   - seaborn
-#   - plotly
-
-#   # --- Math & Data Science (Legacy Support) ---
-#   - numpy
-#   - scipy
-#   - pandas
-#   - sympy
-#   - matplotlib
-
-#   # --- Optimization Frameworks ---
-#   - cvxpy
-#   - pyomo
-
-#   # --- CAD Geometry ---
-#   - cadquery=2.6
-
-#   # --- Binary Solvers ---
-#   - ipopt
-#   - highs
-#   - highspy
-#   - glpk
-
-
 name: base
 channels:
   - conda-forge
+  - pytorch
 dependencies:
   # --- Core Runtime ---
   - python=3.10
   - pip
 
-  # --- Web & Kernel Infrastructure (REQUIRED for executor.py) ---
+  # --- Web & Kernel Infrastructure ---
   - fastapi
   - uvicorn
   - python-multipart
   - jupyter_client
   - ipykernel
+  - jupyterlab
   - google-cloud-storage
-  # 'typing' and 'time' are built-in standard libraries in Python, 
-  # so they don't need to be listed here.
+  - time
+  - typing
+
+  # --- High-Performance Data & ML ---
+  - polars                # <--- Industrial alternative to Pandas
+  - pyarrow               # <--- Needed for Polars/Parquet performance
+  - xgboost               # <--- Industrial Gradient Boosting
+  - lightgbm              # <--- Ultra-fast Gradient Boosting
+  - pytorch               # <--- Deep Learning & Tensor Ops
+  - cpuonly               # <--- Ensures Docker stays light (no CUDA)
+  - torchvision
+  - jax                   # <--- Google's JIT-compiled Numerical Lib
+  - jaxlib
+  - openpyxl
+  - seaborn
+  - plotly
+
+  # --- Math & Data Science (Legacy Support) ---
+  - numpy
+  - scipy
+  - pandas
+  - sympy
+  - matplotlib
+
+  # --- Optimization Frameworks ---
+  - cvxpy
+  - pyomo
+
+  # --- CAD Geometry ---
+  - cadquery=2.6
+
+  # --- Binary Solvers ---
+  - ipopt
+  - highs
+  - highspy
+  - glpk
