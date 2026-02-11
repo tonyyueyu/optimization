@@ -51,7 +51,10 @@ const formatReference = (data) => {
     return formatted;
 };
 
-const extractCodeCells = (steps) => {
+const extractCodeCells = (steps = []) => {
+    if (!steps || !Array.isArray(steps)) {
+        return [];
+    }
     return steps
         .map((step) => ({
             stepNumber: step.number,
@@ -61,7 +64,6 @@ const extractCodeCells = (steps) => {
             language: step.language || 'python',
             plots: step.plots || [],
             files: step.files || []
-
         }))
         .filter(cell => cell.code || cell.output || cell.error || (cell.plots && cell.plots.length > 0) || (cell.files && cell.files.length > 0))
 }
@@ -171,7 +173,7 @@ const RunBlock = ({ cell }) => {
                 {isCodeVisible && cell.code && (
                     <pre className="run-block-code"><code>{cell.code}</code></pre>
                 )}
-                
+
                 {(cell.output || cell.error) && (
                     <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
                         {cell.error ? <strong>Error: </strong> : null}
@@ -188,28 +190,28 @@ const RunBlock = ({ cell }) => {
                 )}
 
                 {/* UPDATED FILE SECTION */}
-               {cell.files && cell.files.length > 0 && (
-            <div className="run-block-files">
-                {cell.files.map((file, idx) => (
-                    <button 
-                        key={idx} 
-                        type="button"
-                        className="download-btn"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(file.download_url, '_blank');
-                        }}
-                    >
-                        <span className="download-btn-icon">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="7 10 12 15 17 10" />
-                                <line x1="12" y1="15" x2="12" y2="3" />
-                            </svg>
-                        </span>
-                        <span>Download {file.name}</span>
-                    </button>
-                ))}
+                {cell.files && cell.files.length > 0 && (
+                    <div className="run-block-files">
+                        {cell.files.map((file, idx) => (
+                            <button
+                                key={idx}
+                                type="button"
+                                className="download-btn"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(file.download_url, '_blank');
+                                }}
+                            >
+                                <span className="download-btn-icon">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                        <polyline points="7 10 12 15 17 10" />
+                                        <line x1="12" y1="15" x2="12" y2="3" />
+                                    </svg>
+                                </span>
+                                <span>Download {file.name}</span>
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>
@@ -287,7 +289,6 @@ function App() {
 
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
-    const [selectedCodeMessageIndex, setSelectedCodeMessageIndex] = useState(null);
 
     const { isLoaded, isSignedIn, user } = useUser()
     const messagesEndRef = useRef(null)
@@ -329,34 +330,34 @@ function App() {
     }, [input]);
 
     const fetchSessions = useCallback(async (userId) => {
-    try {
-        const res = await fetch(`${API_BASE}/api/sessions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId })
-        });
+        try {
+            const res = await fetch(`${API_BASE}/api/sessions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId })
+            });
 
-        const rawText = await res.text();
-        console.log("RAW RESPONSE:", rawText);
+            const rawText = await res.text();
+            console.log("RAW RESPONSE:", rawText);
 
-        if (!res.ok) {
-            throw new Error(`Server responded with ${res.status}`);
+            if (!res.ok) {
+                throw new Error(`Server responded with ${res.status}`);
+            }
+
+            const data = JSON.parse(rawText);
+
+            const sessionsArr = Object.entries(data.sessions || {})
+                .map(([id, meta]) => ({ id, ...meta }))
+                .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+
+            setSessions(sessionsArr);
+            return sessionsArr;
+
+        } catch (e) {
+            console.error("Failed to fetch sessions", e);
+            return [];
         }
-
-        const data = JSON.parse(rawText);
-
-        const sessionsArr = Object.entries(data.sessions || {})
-            .map(([id, meta]) => ({ id, ...meta }))
-            .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
-
-        setSessions(sessionsArr);
-        return sessionsArr;
-
-    } catch (e) {
-        console.error("Failed to fetch sessions", e);
-        return [];
-    }
-}, []);
+    }, []);
 
 
     const fetchSessionMessages = useCallback(async (userId, sessionId) => {
@@ -464,23 +465,14 @@ function App() {
 
     useEffect(() => {
         // Clear the current active run state when switching threads
-        setSelectedCodeMessageIndex(null);
         setStreamingContent(null); // <--- Add this line
         setUploadedFileName(null);
         setFileContext(null);
     }, [currentSessionId]);
 
-    useEffect(() => {
-        if (!historyLoading && messages.length > 0) {
-            const idx = messages.findLastIndex(m => m.role === 'assistant' && m.type === 'steps' && m.steps?.length);
-            if (idx !== -1) setSelectedCodeMessageIndex(idx);
-        }
-    }, [historyLoading]);
-
     const handleCreateSession = () => {
         setCurrentSessionId(null);
         setMessages([]);
-        setSelectedCodeMessageIndex(null);
         setFileContext(null);
         setUploadedFileName(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -518,65 +510,65 @@ function App() {
     };
 
     const handleFileUpload = async (file) => {
-    if (!file) return;
-    
-    setIsUploading(true);
-    let sessionId = currentSessionId;
+        if (!file) return;
 
-    try {
-        // 1. If no session exists, create one immediately
-        if (!sessionId) {
-            const isAnonymous = !isSignedIn || !user?.id;
-            const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
+        setIsUploading(true);
+        let sessionId = currentSessionId;
+
+        try {
+            // 1. If no session exists, create one immediately
+            if (!sessionId) {
+                const isAnonymous = !isSignedIn || !user?.id;
+                const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: user?.id || 'anonymous',
+                        title: `Upload: ${file.name}`
+                    })
+                });
+
+                if (createRes.ok) {
+                    const sData = await createRes.json();
+                    sessionId = sData.session_id;
+                    setCurrentSessionId(sessionId); // Set for the rest of the app
+                    if (!isAnonymous) fetchSessions(user.id); // Refresh sidebar
+                } else {
+                    throw new Error("Failed to initialize session for upload.");
+                }
+            }
+
+            // 2. Now proceed with the upload using the (newly created or existing) sessionId
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('user_id', user?.id || 'anonymous');
+            formData.append('session_id', sessionId); // <--- We now definitely have this
+
+            const response = await fetch(`${API_BASE}/api/upload`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    user_id: user?.id || 'anonymous', 
-                    title: `Upload: ${file.name}` 
-                })
+                body: formData,
             });
 
-            if (createRes.ok) {
-                const sData = await createRes.json();
-                sessionId = sData.session_id;
-                setCurrentSessionId(sessionId); // Set for the rest of the app
-                if (!isAnonymous) fetchSessions(user.id); // Refresh sidebar
-            } else {
-                throw new Error("Failed to initialize session for upload.");
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(JSON.stringify(errorData));
             }
+
+            const data = await response.json();
+            setUploadedFileName(file.name);
+            setFileContext(data.summary || `File '${file.name}' uploaded successfully.`);
+
+        } catch (error) {
+            console.error("Upload Error:", error);
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                type: 'text',
+                content: `❌ Error uploading file: ${error.message}`
+            }]);
+        } finally {
+            setIsUploading(false);
         }
-
-        // 2. Now proceed with the upload using the (newly created or existing) sessionId
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('user_id', user?.id || 'anonymous');
-        formData.append('session_id', sessionId); // <--- We now definitely have this
-
-        const response = await fetch(`${API_BASE}/api/upload`, {
-            method: 'POST',
-            body: formData,
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(JSON.stringify(errorData));
-        }
-        
-        const data = await response.json();
-        setUploadedFileName(file.name);
-        setFileContext(data.summary || `File '${file.name}' uploaded successfully.`);
-
-    } catch (error) {
-        console.error("Upload Error:", error);
-        setMessages(prev => [...prev, {
-            role: 'assistant',
-            type: 'text',
-            content: `❌ Error uploading file: ${error.message}`
-        }]);
-    } finally {
-        setIsUploading(false);
-    }
-};
+    };
 
     const onDragOver = useCallback((e) => {
         e.preventDefault(); e.stopPropagation();
@@ -665,7 +657,10 @@ function App() {
         abortControllerRef.current = new AbortController();
 
         try {
-            setStreamingContent(prev => ({ ...prev, status: 'solving' }));
+            setStreamingContent(prev => ({
+                ...(prev || { steps: [], currentStep: null, currentTokens: '' }),
+                status: 'solving'
+            }));
 
             const formattedHistory = messages.map(msg => {
                 if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
@@ -744,7 +739,6 @@ function App() {
                         }))
                     };
                     setMessages(prev => [...prev, newMsg]);
-                    setSelectedCodeMessageIndex(messages.length);
                 }
             }
 
@@ -768,31 +762,47 @@ function App() {
     const handleSSEEvent = (event) => {
         switch (event.event) {
             case 'step_start':
-                setStreamingContent(prev => ({
-                    ...prev,
-                    currentStep: event.data.step_number,
-                    currentTokens: '',
-                    status: 'generating'
-                }));
+                setStreamingContent(prev => {
+                    const steps = Array.isArray(prev?.steps) ? prev.steps : [];
+                    return {
+                        ...prev,
+                        steps,
+                        currentStep: event.data.step_number,
+                        currentTokens: '',
+                        status: 'generating'
+                    };
+                });
                 break;
             case 'token':
-                setStreamingContent(prev => ({
-                    ...prev,
-                    currentTokens: (prev.currentTokens || '') + (event.data.text || '')
-                }));
+                setStreamingContent(prev => {
+                    const steps = Array.isArray(prev?.steps) ? prev.steps : [];
+                    return {
+                        ...prev,
+                        steps,
+                        currentTokens: (prev?.currentTokens || '') + (event.data.text || '')
+                    };
+                });
                 break;
             case 'generation_complete':
-                setStreamingContent(prev => ({
-                    ...prev,
-                    status: 'executing',
-                    currentTokens: JSON.stringify(event.data.step_data, null, 2)
-                }));
+                setStreamingContent(prev => {
+                    const steps = Array.isArray(prev?.steps) ? prev.steps : [];
+                    return {
+                        ...prev,
+                        steps,
+                        status: 'executing',
+                        currentTokens: JSON.stringify(event.data.step_data, null, 2)
+                    };
+                });
                 break;
             case 'executing':
-                setStreamingContent(prev => ({
-                    ...prev,
-                    status: 'executing'
-                }));
+                setStreamingContent(prev => {
+                    const steps = Array.isArray(prev?.steps) ? prev.steps : [];
+                    return {
+                        ...prev,
+                        steps,
+                        status: 'executing'
+                    };
+                });
                 break;
             case 'step_complete':
                 const formattedStep = {
@@ -807,11 +817,23 @@ function App() {
                     files: event.data.step.files || [],
                 };
                 setStreamingContent(prev => {
-                    const exists = prev.steps.some(s => s.number === formattedStep.number);
-                    if (exists) return { ...prev, currentStep: null, currentTokens: '', status: 'waiting' };
+                    // If prev is null/undefined, bootstrap a fresh state
+                    if (!prev) {
+                        return {
+                            steps: [formattedStep],
+                            currentStep: null,
+                            currentTokens: '',
+                            status: 'waiting'
+                        };
+                    }
+                    const currentSteps = Array.isArray(prev.steps) ? prev.steps : [];
+                    const exists = currentSteps.some(s => s.number === formattedStep.number);
+                    if (exists) {
+                        return { ...prev, steps: currentSteps, currentStep: null, currentTokens: '', status: 'waiting' };
+                    }
                     return {
                         ...prev,
-                        steps: [...prev.steps, formattedStep],
+                        steps: [...currentSteps, formattedStep],
                         currentStep: null,
                         currentTokens: '',
                         status: 'waiting'
@@ -868,7 +890,7 @@ function App() {
                         </span>
                     </div>
                     <div className="run-steps" ref={streamingStepsRef} style={{ scrollBehavior: 'smooth' }}>
-                        {streamingContent.steps.map((step) => renderStepCard(step, { isActive: false }))}
+                        {(streamingContent.steps || []).map((step) => renderStepCard(step, { isActive: false }))}
                         {streamingContent.currentStep && (
                             <div className="run-step run-step-active">
                                 <span className="run-step-badge">{streamingContent.currentStep}</span>
@@ -895,8 +917,6 @@ function App() {
         if (message.role === 'assistant' && message.type === 'steps' && message.steps?.length) {
             return renderAssistantSteps(message, {
                 messageIndex,
-                onViewCode: messageIndex != null ? () => setSelectedCodeMessageIndex(messageIndex) : null,
-                isSelected: messageIndex != null && selectedCodeMessageIndex === messageIndex,
             });
         }
         if (message.role === 'assistant') {
@@ -905,24 +925,8 @@ function App() {
         return renderUserMessage(message.content);
     }
 
-    const renderAssistantSteps = (message, { messageIndex = null, onViewCode = null, isSelected = false } = {}) => (
-        <div className={`assistant-message ${isSelected ? 'message-code-selected' : ''}`}>
-            {onViewCode && (
-                <button
-                    type="button"
-                    className="view-code-btn"
-                    onClick={(e) => { e.stopPropagation(); onViewCode(); }}
-                    aria-pressed={isSelected}
-                >
-                    <span className="view-code-icon" aria-hidden>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="16 18 22 12 16 6" />
-                            <polyline points="8 6 2 12 8 18" />
-                        </svg>
-                    </span>
-                    <span>{isSelected ? 'Showing in code panel' : 'View code in right panel'}</span>
-                </button>
-            )}
+    const renderAssistantSteps = (message, { messageIndex = null } = {}) => (
+        <div className="assistant-message">
             {message.summary && (
                 <div className="message-summary-block">
                     <strong className="message-summary-label">Summary</strong>
@@ -948,29 +952,29 @@ function App() {
         <pre className="user-message-text">{text}</pre>
     )
     useEffect(() => {
-    // We only want to attempt cleanup if there is an active session
-    if (!currentSessionId) return;
+        // We only want to attempt cleanup if there is an active session
+        if (!currentSessionId) return;
 
-    const handleTabClose = () => {
-        const url = `${API_BASE}/api/session/close`; // Uses your dynamic dynamic base
-        const payload = JSON.stringify({
-            user_id: user?.id || 'anonymous', // Correctly access Clerk user ID
-            session_id: currentSessionId 
-        });
+        const handleTabClose = () => {
+            const url = `${API_BASE}/api/session/close`; // Uses your dynamic dynamic base
+            const payload = JSON.stringify({
+                user_id: user?.id || 'anonymous', // Correctly access Clerk user ID
+                session_id: currentSessionId
+            });
 
-        // 'keepalive: true' is essential. It tells the browser to finish 
-        // the request even if the tab is fully destroyed.
-        fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload,
-            keepalive: true, 
-        });
-    };
+            // 'keepalive: true' is essential. It tells the browser to finish 
+            // the request even if the tab is fully destroyed.
+            fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: payload,
+                keepalive: true,
+            });
+        };
 
-    window.addEventListener("beforeunload", handleTabClose);
-    return () => window.removeEventListener("beforeunload", handleTabClose);
-}, [currentSessionId, user?.id, API_BASE]); // Dependencies ensure the listener stays updated
+        window.addEventListener("beforeunload", handleTabClose);
+        return () => window.removeEventListener("beforeunload", handleTabClose);
+    }, [currentSessionId, user?.id, API_BASE]); // Dependencies ensure the listener stays updated
 
     if (!isLoaded) return <div className="app app-loading">Starting…</div>;
 
@@ -1016,17 +1020,32 @@ function App() {
                 />
 
                 {(() => {
-                    const codeOutputCells = streamingContent
-                        ? extractCodeCells(streamingContent.steps)
-                        : (() => {
-                            const idx = selectedCodeMessageIndex != null &&
-                                messages[selectedCodeMessageIndex]?.role === 'assistant' &&
-                                messages[selectedCodeMessageIndex]?.type === 'steps'
-                                ? selectedCodeMessageIndex
-                                : messages.findLastIndex(m => m.role === 'assistant' && m.type === 'steps' && m.steps?.length);
-                            const msg = idx >= 0 ? messages[idx] : null;
-                            return msg?.steps ? extractCodeCells(msg.steps) : [];
-                        })();
+                    const codeGroups = [];
+                    let responseCount = 0;
+                    messages.forEach((msg, idx) => {
+                        if (msg.role === 'assistant' && msg.type === 'steps' && msg.steps?.length) {
+                            const cells = extractCodeCells(msg.steps);
+                            if (cells.length > 0) {
+                                responseCount++;
+                                codeGroups.push({
+                                    id: `msg-${idx}`,
+                                    title: msg.summary ? truncateText(msg.summary, 60) : `Response ${responseCount}`,
+                                    cells
+                                });
+                            }
+                        }
+                    });
+
+                    if (streamingContent) {
+                        const cells = extractCodeCells(streamingContent.steps || []);
+                        if (cells.length > 0) {
+                            codeGroups.push({
+                                id: 'streaming',
+                                title: 'Current Generation',
+                                cells
+                            });
+                        }
+                    }
                     return (
                         <ResizableSplitLayout
                             widthPercent={codePanelWidth}
@@ -1048,7 +1067,7 @@ function App() {
                                             )}
                                             <a href="https://discord.gg/vdffZG9hES" target="_blank" rel="noopener noreferrer" className="app-header-discord-btn" title="Join our Discord" aria-label="Join our Discord community">
                                                 <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor">
-                                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A99.89,99.89,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0A105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a77.15,77.15,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.22,77,77,0,0,0,6.89,11.1A105.73,105.73,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60.6,31,54s5-11.74,11.43-11.74S54,47.41,54,54,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60.6,73.25,54s5-11.74,11.44-11.74S96.23,47.41,96.23,54,91.09,65.69,84.69,65.69Z"/>
+                                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A99.89,99.89,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0A105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a77.15,77.15,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.22,77,77,0,0,0,6.89,11.1A105.73,105.73,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60.6,31,54s5-11.74,11.43-11.74S54,47.41,54,54,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60.6,73.25,54s5-11.74,11.44-11.74S96.23,47.41,96.23,54,91.09,65.69,84.69,65.69Z" />
                                                 </svg>
                                             </a>
                                             <SignedIn>
@@ -1138,16 +1157,21 @@ function App() {
                                         <div className="code-output-header-top">
                                             <span className="code-output-label">Code output</span>
                                         </div>
-                                        {messages.some(m => m.role === 'assistant' && m.type === 'steps') && (
-                                            <p className="code-output-hint">Use « View code in right panel » on any response in the chat to see that run here.</p>
-                                        )}
                                     </div>
                                     <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
-                                        {codeOutputCells.length > 0 ? (
-                                            codeOutputCells.map((cell, idx) => <RunBlock key={idx} cell={cell} />)
+                                        {codeGroups.length > 0 ? (
+                                            codeGroups.map((group, groupIdx) => (
+                                                <div key={group.id} className="code-group">
+                                                    <div className="code-group-header">
+                                                        <span className="code-group-title">{group.title}</span>
+                                                    </div>
+                                                    {group.cells.map((cell, idx) => <RunBlock key={`${group.id}-${idx}`} cell={cell} />)}
+                                                    {groupIdx < codeGroups.length - 1 && <div className="code-group-separator" />}
+                                                </div>
+                                            ))
                                         ) : (
                                             <div className="workspace-code-placeholder">
-                                                {streamingContent ? 'Waiting for output…' : 'Code from your last run will appear here.'}
+                                                {streamingContent ? 'Waiting for output…' : 'Code from your runs will appear here.'}
                                             </div>
                                         )}
                                     </div>

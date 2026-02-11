@@ -589,6 +589,30 @@ body.resizing .app-split-resizer::after {
   font-family: var(--font-mono);
 }
 
+.code-group {
+  margin-bottom: 0px;
+}
+
+.code-group-header {
+  margin-bottom: 16px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-group-separator {
+  margin: 32px 0 32px;
+  height: 1px;
+  background: var(--border);
+  width: 100%;
+}
+
 /* Chat panel: header + messages + composer */
 .chat-panel .app-header {
   flex-shrink: 0;
@@ -1271,46 +1295,47 @@ body.resizing .app-split-resizer::after {
     height: 2px;
   }
 }
+
 .run-block-files {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-top: 20px;
-    padding-left: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+  padding-left: 40px;
 }
 
 .download-btn {
-    all: unset;
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background-color: rgba(13, 148, 136, 0.15);
-    border: 1px solid rgba(13, 148, 136, 0.4);
-    color: #0d9488;
-    padding: 10px 18px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-family: system-ui, -apple-system, sans-serif;
-    font-size: 0.85rem;
-    font-weight: 600;
-    transition: all 0.15s ease-in-out;
-    width: fit-content;
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background-color: rgba(13, 148, 136, 0.15);
+  border: 1px solid rgba(13, 148, 136, 0.4);
+  color: #0d9488;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+  width: fit-content;
 }
 
 .download-btn:hover {
-    background-color: rgba(13, 148, 136, 0.25);
-    border-color: #0d9488;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  background-color: rgba(13, 148, 136, 0.25);
+  border-color: #0d9488;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .download-btn:active {
-    transform: translateY(0);
+  transform: translateY(0);
 }
 
 .download-btn-icon {
-    display: flex;
-    align-items: center;
-    color: #0d9488;
+  display: flex;
+  align-items: center;
+  color: #0d9488;
 }
