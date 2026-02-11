@@ -27,8 +27,40 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
 
+  --discord: #5865F2;
+
   --font-sans: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+:root[data-theme="light"] {
+  --bg-base: #ffffff;
+  --bg-surface: #f8fafc;
+  /* Slate 50 */
+  --bg-elevated: #ffffff;
+  --bg-input: #f1f5f9;
+  /* Slate 100 */
+
+  --text-primary: #0f172a;
+  /* Slate 900 */
+  --text-secondary: #475569;
+  /* Slate 600 */
+  --text-muted: #94a3b8;
+  /* Slate 400 */
+
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --accent-muted: rgba(13, 148, 136, 0.1);
+  --accent-border: rgba(13, 148, 136, 0.25);
+
+  --success: #059669;
+  --error: #dc2626;
+  --error-muted: rgba(220, 38, 38, 0.1);
+
+  --border: #e2e8f0;
+  /* Slate 200 */
+  --border-strong: #cbd5e1;
+  /* Slate 300 */
 }
 
 /* Base & layout */
@@ -293,11 +325,31 @@ html,
   background: var(--error-muted);
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: var(--radius-sm);
-  color: #f87171;
+  color: var(--error);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s;
+}
+
+.app-header-discord-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--discord);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.app-header-discord-btn:hover {
+  background: rgba(88, 101, 242, 0.15);
+  color: #5865F2;
 }
 
 .app-header-stop-btn:hover {
@@ -504,7 +556,7 @@ html,
   flex-direction: row;
   flex: 1;
   min-width: 0;
-  height: 100%;
+  height: auto;
   overflow: hidden;
 }
 
@@ -556,6 +608,10 @@ body.resizing .app-split-resizer::after {
   padding: 0;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
+}
+
+:root[data-theme="light"] .code-output-header {
+  background: var(--bg-input);
 }
 
 .code-output-header-top {
@@ -850,7 +906,7 @@ body.resizing .app-split-resizer::after {
 
 .run-step-outcome-error {
   border-left-color: var(--error);
-  color: #f87171;
+  color: var(--error);
 }
 
 .run-step-stream {
@@ -946,7 +1002,7 @@ body.resizing .app-split-resizer::after {
 
 .run-block-out-error {
   border-left-color: var(--error);
-  color: #f87171;
+  color: var(--error);
 }
 
 .run-block-plot {
@@ -1224,7 +1280,7 @@ body.resizing .app-split-resizer::after {
   background: var(--error-muted);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: var(--radius-sm);
-  color: #f87171;
+  color: var(--error);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;

@@ -293,6 +293,12 @@ function App() {
 
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
+    const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+
+    useEffect(() => {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+    }, [theme]);
 
     const { isLoaded, isSignedIn, user } = useUser()
     const messagesEndRef = useRef(null)
@@ -1017,6 +1023,32 @@ function App() {
                         </svg>
                         <span className="sidebar-toggle-label">Threads</span>
                     </button>
+
+                    <button
+                        type="button"
+                        className="sidebar-toggle-btn"
+                        onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+                        title={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
+                        style={{ marginTop: '12px' }}
+                    >
+                        {theme === 'dark' ? (
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="5"></circle>
+                                <line x1="12" y1="1" x2="12" y2="3"></line>
+                                <line x1="12" y1="21" x2="12" y2="23"></line>
+                                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                                <line x1="1" y1="12" x2="3" y2="12"></line>
+                                <line x1="21" y1="12" x2="23" y2="12"></line>
+                                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                            </svg>
+                        ) : (
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                            </svg>
+                        )}
+                    </button>
                 </div>
 
                 <Sidebar
@@ -1063,137 +1095,140 @@ function App() {
                         }
                     }
                     return (
-                        <ResizableSplitLayout
-                            widthPercent={codePanelWidth}
-                            setWidthPercent={setCodePanelWidth}
-                            leftClassName="chat-panel"
-                            rightClassName="code-output-panel"
-                            left={
-                                <>
-                                    <header className="app-header">
-                                        <div className="app-header-left">
-                                            <span className="app-logo" aria-hidden>
-                                                <img src="/favicon.png" alt="Solver" width="28" height="28" />
-                                            </span>
-                                            <h1 className="app-header-title">{sessions.find(s => s.id === currentSessionId)?.title || "Solver"}</h1>
-                                        </div>
-                                        <div className="app-header-right">
-                                            {isLoading && (
-                                                <button type="button" onClick={() => abortControllerRef.current?.abort()} className="app-header-stop-btn">Stop</button>
-                                            )}
-                                            <a href="https://discord.gg/vdffZG9hES" target="_blank" rel="noopener noreferrer" className="app-header-discord-btn" title="Join our Discord" aria-label="Join our Discord community">
-                                                <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor">
-                                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A99.89,99.89,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0A105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a77.15,77.15,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.22,77,77,0,0,0,6.89,11.1A105.73,105.73,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60.6,31,54s5-11.74,11.43-11.74S54,47.41,54,54,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60.6,73.25,54s5-11.74,11.44-11.74S96.23,47.41,96.23,54,91.09,65.69,84.69,65.69Z" />
-                                                </svg>
-                                            </a>
-                                            <SignedIn>
-                                                <UserButton />
-                                            </SignedIn>
-                                            <SignedOut>
-                                                <SignInButton mode="modal">
-                                                    <button type="button" className="app-header-signin-btn">Log in</button>
-                                                </SignInButton>
-                                            </SignedOut>
-                                        </div>
-                                    </header>
+                        <div className="main-workspace">
+                            <header className="app-header">
+                                <div className="app-header-left">
+                                    <span className="app-logo" aria-hidden>
+                                        <img src="/favicon.png" alt="Solver" width="28" height="28" />
+                                    </span>
+                                    <h1 className="app-header-title">{sessions.find(s => s.id === currentSessionId)?.title || "Solver"}</h1>
+                                </div>
+                                <div className="app-header-right">
+                                    {isLoading && (
+                                        <button type="button" onClick={() => abortControllerRef.current?.abort()} className="app-header-stop-btn">Stop</button>
+                                    )}
+                                    <a href="https://discord.gg/vdffZG9hES" target="_blank" rel="noopener noreferrer" className="app-header-discord-btn" title="Join our Discord" aria-label="Join our Discord community">
+                                        <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor">
+                                            <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A99.89,99.89,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0A105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a77.15,77.15,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.22,77,77,0,0,0,6.89,11.1A105.73,105.73,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60.6,31,54s5-11.74,11.43-11.74S54,47.41,54,54,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60.6,73.25,54s5-11.74,11.44-11.74S96.23,47.41,96.23,54,91.09,65.69,84.69,65.69Z" />
+                                        </svg>
+                                    </a>
+                                    <SignedIn>
+                                        <UserButton />
+                                    </SignedIn>
+                                    <SignedOut>
+                                        <SignInButton mode="modal">
+                                            <button type="button" className="app-header-signin-btn">Log in</button>
+                                        </SignInButton>
+                                    </SignedOut>
+                                </div>
+                            </header>
+                            <ResizableSplitLayout
+                                widthPercent={codePanelWidth}
+                                setWidthPercent={setCodePanelWidth}
+                                leftClassName="chat-panel"
+                                rightClassName="code-output-panel"
+                                left={
+                                    <>
 
-                                    <div className="messages-area">
-                                        {!currentSessionId && messages.length === 0 ? (
-                                            <div className="empty-state">
-                                                <h2 className="empty-state-heading">What would you like to work on?</h2>
-                                                <p className="empty-state-text">Create a thread or type below to get started.</p>
-                                                <SignedOut>
-                                                    <p className="empty-state-hint">Sign in to save your threads and history.</p>
-                                                </SignedOut>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                {messages.length === 0 && !isLoading && !streamingContent && (
-                                                    <div className="empty-state empty-state-small">
-                                                        <p className="empty-state-text">No messages in this thread.</p>
-                                                    </div>
-                                                )}
 
-                                                {messages.map((message, index) => (
-                                                    <div key={index} className={`message ${message.role}`}>
-                                                        <div className="message-content">{renderMessageContent(message, index)}</div>
-                                                    </div>
-                                                ))}
-
-                                                {isLoading && streamingContent && renderStreamingContent()}
-                                            </>
-                                        )}
-                                        <div ref={messagesEndRef} />
-                                    </div>
-
-                                    <div className="composer">
-                                        {uploadedFileName && (
-                                            <div className="composer-attachment">
-                                                <span className="composer-attachment-name">{uploadedFileName}</span>
-                                                <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
-                                            </div>
-                                        )}
-                                        <div className="composer-inner">
-                                            <button type="button" className="composer-attach-btn" onClick={() => fileInputRef.current?.click()} title="Attach file" aria-label="Attach file">
-                                                {isUploading ? <span className="composer-spinner" /> : (
-                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                                                    </svg>
-                                                )}
-                                            </button>
-                                            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
-                                            <textarea
-                                                ref={textareaRef}
-                                                value={input}
-                                                onChange={e => setInput(e.target.value)}
-                                                onKeyDown={e => {
-                                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                                        e.preventDefault();
-                                                        handleSend();
-                                                    }
-                                                }}
-                                                placeholder="Ask anything or describe your task…"
-                                                rows={1}
-                                                className="composer-input"
-                                                aria-label="Message"
-                                            />
-                                            <button type="button" onClick={handleSend} disabled={isLoading || !input.trim()} className="composer-send-btn" aria-label="Send">
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <line x1="22" y1="2" x2="11" y2="13" />
-                                                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </>
-                            }
-                            right={
-                                <>
-                                    <div className="code-output-header">
-                                        <div className="code-output-header-top">
-                                            <span className="code-output-label">Code output</span>
-                                        </div>
-                                    </div>
-                                    <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
-                                        {codeGroups.length > 0 ? (
-                                            codeGroups.map((group, groupIdx) => (
-                                                <div key={group.id} className="code-group">
-                                                    <div className="code-group-header">
-                                                        <span className="code-group-title">{group.title}</span>
-                                                    </div>
-                                                    {group.cells.map((cell, idx) => <RunBlock key={`${group.id}-${idx}`} cell={cell} />)}
-                                                    {groupIdx < codeGroups.length - 1 && <div className="code-group-separator" />}
+                                        <div className="messages-area">
+                                            {!currentSessionId && messages.length === 0 ? (
+                                                <div className="empty-state">
+                                                    <h2 className="empty-state-heading">What would you like to work on?</h2>
+                                                    <p className="empty-state-text">Create a thread or type below to get started.</p>
+                                                    <SignedOut>
+                                                        <p className="empty-state-hint">Sign in to save your threads and history.</p>
+                                                    </SignedOut>
                                                 </div>
-                                            ))
-                                        ) : (
-                                            <div className="workspace-code-placeholder">
-                                                {streamingContent ? 'Waiting for output…' : 'Code from your runs will appear here.'}
+                                            ) : (
+                                                <>
+                                                    {messages.length === 0 && !isLoading && !streamingContent && (
+                                                        <div className="empty-state empty-state-small">
+                                                            <p className="empty-state-text">No messages in this thread.</p>
+                                                        </div>
+                                                    )}
+
+                                                    {messages.map((message, index) => (
+                                                        <div key={index} className={`message ${message.role}`}>
+                                                            <div className="message-content">{renderMessageContent(message, index)}</div>
+                                                        </div>
+                                                    ))}
+
+                                                    {isLoading && streamingContent && renderStreamingContent()}
+                                                </>
+                                            )}
+                                            <div ref={messagesEndRef} />
+                                        </div>
+
+                                        <div className="composer">
+                                            {uploadedFileName && (
+                                                <div className="composer-attachment">
+                                                    <span className="composer-attachment-name">{uploadedFileName}</span>
+                                                    <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
+                                                </div>
+                                            )}
+                                            <div className="composer-inner">
+                                                <button type="button" className="composer-attach-btn" onClick={() => fileInputRef.current?.click()} title="Attach file" aria-label="Attach file">
+                                                    {isUploading ? <span className="composer-spinner" /> : (
+                                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                                        </svg>
+                                                    )}
+                                                </button>
+                                                <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+                                                <textarea
+                                                    ref={textareaRef}
+                                                    value={input}
+                                                    onChange={e => setInput(e.target.value)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                                            e.preventDefault();
+                                                            handleSend();
+                                                        }
+                                                    }}
+                                                    placeholder="Ask anything or describe your task…"
+                                                    rows={1}
+                                                    className="composer-input"
+                                                    aria-label="Message"
+                                                />
+                                                <button type="button" onClick={handleSend} disabled={isLoading || !input.trim()} className="composer-send-btn" aria-label="Send">
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <line x1="22" y1="2" x2="11" y2="13" />
+                                                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                                                    </svg>
+                                                </button>
                                             </div>
-                                        )}
-                                    </div>
-                                </>
-                            }
-                        />
+                                        </div>
+                                    </>
+                                }
+                                right={
+                                    <>
+                                        <div className="code-output-header">
+                                            <div className="code-output-header-top">
+                                                <span className="code-output-label">Code output</span>
+                                            </div>
+                                        </div>
+                                        <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
+                                            {codeGroups.length > 0 ? (
+                                                codeGroups.map((group, groupIdx) => (
+                                                    <div key={group.id} className="code-group">
+                                                        <div className="code-group-header">
+                                                            <span className="code-group-title">{group.title}</span>
+                                                        </div>
+                                                        {group.cells.map((cell, idx) => <RunBlock key={`${group.id}-${idx}`} cell={cell} />)}
+                                                        {groupIdx < codeGroups.length - 1 && <div className="code-group-separator" />}
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="workspace-code-placeholder">
+                                                    {streamingContent ? 'Waiting for output…' : 'Code from your runs will appear here.'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                }
+                            />
+                        </div>
                     );
                 })()}
             </div>
