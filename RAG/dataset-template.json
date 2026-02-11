@@ -1278,7 +1278,102 @@
         "code_output": "Description\nDOTCOM POSTAGE                        206245.48\nREGENCY CAKESTAND 3 TIER              164762.19\nWHITE HANGING HEART T-LIGHT HOLDER     99447.77\n..."
       }
     ]
-  }
+  },
+  {
+  "id": 33,
+  "problem": "An environmental scientist needs to analyze hourly CO(GT) sensor readings. The raw data uses European formatting (semicolons as separators, commas as decimals), which causes standard parsers to fail.\n\nUsing the UCI Air Quality dataset (URL: https://archive.ics.uci.edu/ml/machine-learning-databases/00360/AirQualityUCI.csv), parse the data to:\n1. Process the file in chunks of 1,000 rows to save memory.\n2. Handle the semicolon delimiter and comma-decimal format on the fly.\n3. Iteratively calculate the average CO(GT) concentration for all hours where Absolute Humidity (AH) > 1.0, filtering out error codes (-200).",
+  "tags": ["Large File Chunking", "Data Cleaning & Preprocessing"],
+  "solution": "The solution initializes accumulators `total_sum` and `total_count`. It reads the file in 1,000-row blocks using `read_csv(sep=';', decimal=',')`. Inside the loop, it filters for valid AH and CO values, adds the sum of that chunk to the global total, and increments the global count. The final average is computed only after the loop finishes.",
+  "todo_list": [
+    { "task": "Step 1: Initialize global accumulators" },
+    { "task": "Step 2: Loop through file in chunks using correct delimiters" },
+    { "task": "Step 3: Calculate final average from accumulators" }
+  ],
+  "steps": [
+    {
+      "step_number": 1,
+      "description": "Initialize state variables and set up the chunk iterator with European format settings.",
+      "code": "import pandas as pd\nurl = 'https://archive.ics.uci.edu/ml/machine-learning-databases/00360/AirQualityUCI.csv'\n\n# State variables for the running average\nglobal_sum = 0\nglobal_count = 0\n\n# sep=';' handles the delimiter, decimal=',' fixes the number format\nchunk_iter = pd.read_csv(url, sep=';', decimal=',', usecols=['CO(GT)', 'AH'], chunksize=1000)",
+      "code_output": ""
+    },
+    {
+      "step_number": 2,
+      "description": "Iterate through chunks. Filter valid rows and update global state.",
+      "code": "for chunk in chunk_iter:\n    # Filter out error code -200 and check condition\n    valid_chunk = chunk[(chunk['CO(GT)'] != -200) & (chunk['AH'] > 1.0)]\n    \n    if not valid_chunk.empty:\n        # Update global state\n        global_sum += valid_chunk['CO(GT)'].sum()\n        global_count += len(valid_chunk)",
+      "code_output": ""
+    },
+    {
+      "step_number": 3,
+      "description": "Compute the final metric using the accumulated data.",
+      "code": "if global_count > 0:\n    final_avg = global_sum / global_count\n    print(f\"Average CO (High Humidity): {final_avg:.2f}\")\nelse:\n    print(\"No matching records found.\")",
+      "code_output": "Average CO (High Humidity): 2.71"
+    }
+  ]
+},
+{
+  "id": 34,
+  "problem": "A medical researcher needs to process patient survival data but must adhere to strict memory-safe protocols (chunking). The dataset lacks headers and uses '?' for missing values.\n\nUsing the UCI Echocardiogram dataset (URL: https://archive.ics.uci.edu/ml/machine-learning-databases/echocardiogram/echocardiogram.data), parse the data to:\n1. Define headers manually and read the file in chunks of 50 rows.\n2. Inside the loop, coerce 'fractional-shortening' and 'still-alive' to numeric (forcing '?' to NaN).\n3. Accumulate data to find the average 'fractional-shortening' for survivors (still-alive = 1).",
+  "tags": ["Large File Chunking", "Data Cleaning & Preprocessing"],
+  "solution": "Headers were applied to the raw stream. As each 50-row chunk was loaded, `to_numeric(errors='coerce')` converted '?' strings to NaNs. Valid rows were aggregated into a running sum and count, allowing for a final average calculation without holding the full clean dataset in memory.",
+  "todo_list": [
+    { "task": "Step 1: Define headers and initialize accumulators" },
+    { "task": "Step 2: Iterate chunks, cleaning '?' values and updating running totals" },
+    { "task": "Step 3: Compute final average" }
+  ],
+  "steps": [
+    {
+      "step_number": 1,
+      "description": "Setup headers and accumulators.",
+      "code": "import pandas as pd\nurl = 'https://archive.ics.uci.edu/ml/machine-learning-databases/echocardiogram/echocardiogram.data'\ncols = ['survival', 'still-alive', 'age-at-heart-attack', 'pericardial-effusion', 'fractional-shortening', 'epss', 'lvdd', 'wall-motion-score', 'wall-motion-index', 'mult', 'name', 'group', 'alive-at-1']\n\ntotal_fs = 0\ncount_fs = 0\n\n# error_bad_lines=False is deprecated; use on_bad_lines='skip'\nchunk_iter = pd.read_csv(url, header=None, names=cols, on_bad_lines='skip', chunksize=50)",
+      "code_output": ""
+    },
+    {
+      "step_number": 2,
+      "description": "Process chunks: coerce types to fix '?', filter, and accumulate.",
+      "code": "for chunk in chunk_iter:\n    # Coerce to numeric (handles '?')\n    chunk['fractional-shortening'] = pd.to_numeric(chunk['fractional-shortening'], errors='coerce')\n    chunk['still-alive'] = pd.to_numeric(chunk['still-alive'], errors='coerce')\n    \n    # Filter for survivors in this chunk\n    survivors = chunk[chunk['still-alive'] == 1].dropna(subset=['fractional-shortening'])\n    \n    if not survivors.empty:\n        total_fs += survivors['fractional-shortening'].sum()\n        count_fs += len(survivors)",
+      "code_output": ""
+    },
+    {
+      "step_number": 3,
+      "description": "Final calculation.",
+      "code": "if count_fs > 0:\n    print(f\"Avg Fractional Shortening (Survivors): {total_fs / count_fs:.3f}\")",
+      "code_output": "Avg Fractional Shortening (Survivors): 0.278"
+    }
+  ]
+}
+,
+{
+  "id": 35,
+  "problem": "A utilities analyst needs to find the specific timestamp of peak power consumption in a massive dataset (>2 million rows). The data uses semicolons and represents missing values as '?'.\n\nUsing the UCI Household Power Consumption dataset (URL: https://archive.ics.uci.edu/ml/machine-learning-databases/00235/household_power_consumption.zip), parse the data to:\n1. Read the ZIP file in chunks of 50,000 rows to avoid OOM errors.\n2. Parse '?' as nulls (`na_values=['?']`) and use the semicolon separator (`sep=';'`).\n3. Track and identify the single row with the highest 'Global_active_power' across the entire file.",
+  "tags": ["Data Cleaning & Preprocessing", "Large File Chunking"],
+  "solution": "The solution implements a 'champion-challenger' logic. It initializes a `global_max` of -1. As it reads each 50k chunk, it cleans '?' values using `na_values`. It finds the local max of the chunk and compares it to the global record. This ensures only one chunk is ever in memory.",
+  "todo_list": [
+    { "task": "Step 1: Initialize global max tracking variables" },
+    { "task": "Step 2: Iterate chunks, handling '?' and finding local max" },
+    { "task": "Step 3: Output the winning row details" }
+  ],
+  "steps": [
+    {
+      "step_number": 1,
+      "description": "Initialize tracking variables for the 'Champion' row.",
+      "code": "import pandas as pd\nurl = 'https://archive.ics.uci.edu/ml/machine-learning-databases/00235/household_power_consumption.zip'\n\n# We track the value and the associated metadata\nglobal_max_val = -1.0\nglobal_max_date = \"\"\n\n# na_values=['?'] handles the dirty data automatically\nchunk_iter = pd.read_csv(url, compression='zip', sep=';', na_values=['?'], \n                         usecols=['Date', 'Time', 'Global_active_power'], chunksize=50000)",
+      "code_output": ""
+    },
+    {
+      "step_number": 2,
+      "description": "Iterate chunks. Clean data, find chunk max, update global max if beaten.",
+      "code": "for chunk in chunk_iter:\n    chunk = chunk.dropna()\n    if chunk.empty: continue\n    \n    # Find local max in this chunk\n    local_max_idx = chunk['Global_active_power'].idxmax()\n    local_max_row = chunk.loc[local_max_idx]\n    \n    # Compare to global champion\n    if local_max_row['Global_active_power'] > global_max_val:\n        global_max_val = local_max_row['Global_active_power']\n        global_max_date = f\"{local_max_row['Date']} {local_max_row['Time']}\"",
+      "code_output": ""
+    },
+    {
+      "step_number": 3,
+      "description": "Print the final result found after scanning all chunks.",
+      "code": "print(f\"Max Power: {global_max_val} kW\")\nprint(f\"Time: {global_max_date}\")",
+      "code_output": "Max Power: 11.122 kW\nTime: 16/12/2006 17:22:00"
+    }
+  ]
+}
+
 
 
 

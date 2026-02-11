@@ -208,6 +208,7 @@ OPTIMIZATION_TAGS = [
     "CAD-Integrated Optimization",
     "Geometric Containment & Rotation",
     "Data Cleaning & Preprocessing",
+    "Large File Chunking",
   ]# --- Updated app.py logic ---
 
 async def get_references(query: str, chat_history: list):
@@ -501,7 +502,7 @@ async def solve(data: SolveRequest):
                 6. Output strict JSON.
                 7. After obtaining the final answer, create an extra step for the summary.
                 8. FINAL STEP INSTRUCTIONS:
-                   - Typically, create a dedicated final step with "code": "" to summarize.
+                   - Typically, create a dedicated final step with "code": "" to summarize. Summarize the answer from the code output, not the step itself.
                    - **EXCEPTION FOR TRIVIAL PROBLEMS:** You may set "is_final_step": true in the SAME step where you write the code, effectively solving and summarizing in one step.
                    - Otherwise, set "is_final_step": true, put text summary in "description", and set "code": "".
                    - Keep the exact same JSON structure.
