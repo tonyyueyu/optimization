@@ -1,6 +1,6 @@
 # HippoFlo
 
-A comprehensive optimization solver platform featuring a Vite-based React frontend and a multi-service Python backend.
+A RAG-based math optimization and data analysis platform built using Vite-based React and Python backend.
 
 ## Repository Structure
 
@@ -8,6 +8,17 @@ A comprehensive optimization solver platform featuring a Vite-based React fronte
   - `backend/`: Python services (API and Math Executor).
   - `src/`: React frontend source code.
 - **/RAG**: Resources related to Retrieval-Augmented Generation.
+
+## Architecture
+
+The application is composed of three main services:
+
+| Service | Technology | Port | Description |
+| :--- | :--- | :--- | :--- |
+| **Frontend** | React + Vite | `5173` | The user interface for interacting with the solver. |
+| **Backend** | Python (FastAPI/Flask) | `8000` | The main API and database interface. |
+| **Executor** | Python | `8001` | Dedicated service for handling heavy math computations. |
+
 
 ---
 
@@ -40,17 +51,6 @@ cd solver
 ```
 
 ---
-
-## Architecture
-
-The application is composed of three main services:
-
-| Service | Technology | Port | Description |
-| :--- | :--- | :--- | :--- |
-| **Frontend** | React + Vite | `5173` | The user interface for interacting with the solver. |
-| **Backend** | Python (FastAPI/Flask) | `8000` | The main API and database interface. |
-| **Executor** | Python | `8001` | Dedicated service for handling heavy math computations. |
-
 ## Configuration
 
 Ensure you have the following files configured in the `solver` directory:
