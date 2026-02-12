@@ -615,41 +615,41 @@ function App() {
     }
 
     const handleModifyPrompt = async (index, newQuery) => {
-    console.log("Modifying prompt at index:", index);
-    
-    // 1. Close the edit UI
-    setEditingIndex(null);
+        console.log("Modifying prompt at index:", index);
 
-    // 2. Prepare the truncated history locally
-    const truncatedHistory = messages.slice(0, index);
-    setMessages(truncatedHistory);
+        // 1. Close the edit UI
+        setEditingIndex(null);
 
-    try {
-        // 3. ONLY call the backend if we actually have a session to truncate
-        // This allows Guest users and new chats to work without errors
-        if (currentSessionId && isSignedIn) {
-            await fetch(`${API_BASE}/api/prompt/modify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: user?.id,
-                    session_id: currentSessionId,
-                    message_index: index,
-                    new_query: newQuery
-                })
-            });
+        // 2. Prepare the truncated history locally
+        const truncatedHistory = messages.slice(0, index);
+        setMessages(truncatedHistory);
+
+        try {
+            // 3. ONLY call the backend if we actually have a session to truncate
+            // This allows Guest users and new chats to work without errors
+            if (currentSessionId && isSignedIn) {
+                await fetch(`${API_BASE}/api/prompt/modify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: user?.id,
+                        session_id: currentSessionId,
+                        message_index: index,
+                        new_query: newQuery
+                    })
+                });
+            }
+
+            // 4. Trigger the new search
+            // Pass 'true' as the third argument to bypass the isLoading lock
+            await handleSend(newQuery, truncatedHistory, true);
+
+        } catch (e) {
+            console.error("Modify error:", e);
+            // If it fails, we still want to stop the loading spinner
+            setIsLoading(false);
         }
-
-        // 4. Trigger the new search
-        // Pass 'true' as the third argument to bypass the isLoading lock
-        await handleSend(newQuery, truncatedHistory, true);
-
-    } catch (e) {
-        console.error("Modify error:", e);
-        // If it fails, we still want to stop the loading spinner
-        setIsLoading(false); 
-    }
-};
+    };
 
     const handleSend = async (overrideQuery = null, overrideHistory = null, isRetry = false) => {
         const queryToUse = (overrideQuery !== null) ? overrideQuery : input;
@@ -686,7 +686,7 @@ function App() {
 
         const userMessage = { role: 'user', content: userMessageText };
         const baseHistory = overrideHistory !== null ? overrideHistory : messages;
-        setMessages([...baseHistory, userMessage]); 
+        setMessages([...baseHistory, userMessage]);
         setInput('');
 
         let finalQuery = userMessageText;
@@ -711,30 +711,30 @@ function App() {
         abortControllerRef.current = new AbortController();
 
         try {
-        // Use baseHistory here instead of messages
-        const formattedHistory = baseHistory.map(msg => {
-            if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
-            if (msg.role === 'assistant') {
-                if (msg.type === 'steps') {
-                    const stepsSummary = msg.steps.map(s => `- ${s.description}\nCode:\n${s.code}`).join('\n');
-                    return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
+            // Use baseHistory here instead of messages
+            const formattedHistory = baseHistory.map(msg => {
+                if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
+                if (msg.role === 'assistant') {
+                    if (msg.type === 'steps') {
+                        const stepsSummary = msg.steps.map(s => `- ${s.description}\nCode:\n${s.code}`).join('\n');
+                        return { role: 'assistant', content: `Solution Steps:\n${stepsSummary}` };
+                    }
+                    return { role: 'assistant', content: msg.content };
                 }
-                return { role: 'assistant', content: msg.content };
-            }
-            return null;
-        }).filter(Boolean);
+                return null;
+            }).filter(Boolean);
 
-        const response = await fetch(`${API_BASE}/api/solve`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_query: finalQuery,
-                user_id: user?.id,
-                session_id: targetSessionId,
-                chat_history: formattedHistory // Now uses the correct truncated history
-            }),
-            signal: abortControllerRef.current.signal
-        });
+            const response = await fetch(`${API_BASE}/api/solve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_query: finalQuery,
+                    user_id: user?.id,
+                    session_id: targetSessionId,
+                    chat_history: formattedHistory // Now uses the correct truncated history
+                }),
+                signal: abortControllerRef.current.signal
+            });
 
             if (!response.ok) throw new Error('Failed to get solution');
 
@@ -1016,9 +1016,9 @@ function App() {
                         autoFocus
                     />
                     <div className="edit-prompt-actions">
-                        <button 
-                            className="btn-save" 
-                            type="button" 
+                        <button
+                            className="btn-save"
+                            type="button"
                             onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -1036,8 +1036,8 @@ function App() {
         return (
             <div className="user-message-container">
                 <pre className="user-message-text">{text}</pre>
-                <button 
-                    className="edit-button" 
+                <button
+                    className="edit-button"
                     onClick={() => {
                         setEditingIndex(index);
                         setEditValue(text);
@@ -1220,7 +1220,7 @@ function App() {
                                             {!currentSessionId && messages.length === 0 ? (
                                                 <div className="empty-state">
                                                     <h2 className="empty-state-heading">What would you like to work on?</h2>
-                                                    <p className="empty-state-text">Create a thread or type below to get started.</p>
+                                                    <p className="empty-state-text">Type below to get started.</p>
                                                     <SignedOut>
                                                         <p className="empty-state-hint">Sign in to save your threads and history.</p>
                                                     </SignedOut>
