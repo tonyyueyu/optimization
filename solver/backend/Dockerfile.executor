@@ -1,9 +1,7 @@
 FROM mambaorg/micromamba:latest
 
-# Copy environment.yml (No "backend/" prefix since we build FROM backend)
-COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yml
+COPY --chown=$MAMBA_USER:$MAMBA_USER backend/environment.yml /tmp/env.yml
 
-# Install dependencies and clean up
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
 
@@ -15,12 +13,12 @@ USER $MAMBA_USER
 
 WORKDIR /app
 
-# Run kernel install inside the environment too, just to be safe
-RUN micromamba run -n base python -m ipykernel install --user --name=math_opt_kernel
+RUN python -m ipykernel install --user --name=math_opt_kernel
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-EXPOSE 8080
+EXPOSE 8000
 
-# CRITICAL CHANGE: Use "micromamba run" to activate the environment
-CMD micromamba run -n base uvicorn executor:app --host 0.0.0.0 --port ${PORT:-8080}
+ENV PATH="$MAMBA_ROOT_PREFIX/bin:$PATH"
+
+CMD ["uvicorn", "executor:app", "--host", "0.0.0.0", "--port", "8000"]
