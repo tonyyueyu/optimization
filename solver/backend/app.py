@@ -438,7 +438,7 @@ async def solve(data: SolveRequest):
                         except Exception as e:
                             logger.error(f"Failed to load history for prompt: {e}")
 
-                    prompt = fprompt = f"""
+                    prompt = f"""
                         You are a Math Optimization Code Solver.
 
                         {chat_context}
@@ -471,6 +471,9 @@ async def solve(data: SolveRequest):
                         - Save exports: `"exports/filename.csv"` (auto-uploaded to GCS)
                         - Plots are captured automatically; save to exports/ only if user requests a file.
 
+                        FORMATTING:
+                        - Use LaTeX notation (e.g., `$x_1 = 5$`, `$\\sum_{{i}} c_i x_i$`) in ALL step descriptions and the final summary whenever presenting mathematical expressions, variable names, or numeric results.
+
                         DECOMPOSITION PROTOCOL:
                         - **Complex problems** (optimization models, multi-step analysis, data cleaning + modeling): MUST decompose into steps. Step 1 must be "Problem Analysis & Feasibility Check" — paraphrase constraints, do napkin math (demand vs capacity, etc.).
                         - **Trivial problems** (single-formula calculation, one-liner plot, direct lookup): May solve in one step, but do NOT set `is_final_step: true` on first attempt (errors may arise).
@@ -484,8 +487,8 @@ async def solve(data: SolveRequest):
 
                         FINAL STEP — SUMMARY:
                         When the problem is solved, create one final step with `"code": ""` and `"is_final_step": true`.
-                        The `"description"` must contain ONLY a direct answer to the user's question — specific values, results, and conclusions extracted from the code output.
-                        Do NOT describe the process, methodology, steps taken, or solver used. Just state the answer.
+                        - **If the task was a computation/optimization:** The `"description"` must contain ONLY the direct answer to the user's question — specific values, results, and conclusions from the code output. Do NOT describe the process, methodology, or steps taken.
+                        - **If the task was a plot/graph:** The `"description"` must simply state: "The requested graph has been plotted and is displayed to the right." Do NOT describe the plot contents.
 
                         GOAL: Solve this problem: "{user_query}"
 
