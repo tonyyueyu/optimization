@@ -303,7 +303,7 @@ function App() {
     const [historyError, setHistoryError] = useState(null)
     const [fileContext, setFileContext] = useState(null)
     const [uploadedFileName, setUploadedFileName] = useState(null)
-    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 768);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [sessionToDelete, setSessionToDelete] = useState(null);
     const [editingIndex, setEditingIndex] = useState(null);
@@ -312,11 +312,20 @@ function App() {
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+    const [isMobile, setIsMobile] = useState(false);
+    const [activeMobileTab, setActiveMobileTab] = useState('chat');
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('theme', theme);
     }, [theme]);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 768);
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const { isLoaded, isSignedIn, user } = useUser()
     const messagesEndRef = useRef(null)
@@ -480,6 +489,7 @@ function App() {
         } else {
             setSessions([]);
             setMessages([]);
+            setActiveMobileTab('chat');
         }
     }, [isSignedIn, user?.id, fetchSessions]);
 
@@ -495,6 +505,7 @@ function App() {
         setStreamingContent(null);
         setUploadedFileName(null);
         setFileContext(null);
+        setActiveMobileTab('chat');
     }, [currentSessionId]);
 
     const handleCreateSession = () => {
@@ -503,6 +514,7 @@ function App() {
         setFileContext(null);
         setUploadedFileName(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
+        setActiveMobileTab('chat');
     };
 
     const handleDeleteSession = (sessionId) => {
@@ -1101,48 +1113,50 @@ function App() {
                     message="This thread and its messages will be permanently removed. You can't undo this."
                 />
 
-                <div className="sidebar-toggle-strip" title={isSidebarOpen ? "Hide threads" : "Show threads"}>
-                    <button
-                        type="button"
-                        className="sidebar-toggle-btn"
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        aria-label={isSidebarOpen ? "Hide threads" : "Show threads"}
-                        aria-expanded={isSidebarOpen}
-                    >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="3" y1="12" x2="21" y2="12" />
-                            <line x1="3" y1="6" x2="21" y2="6" />
-                            <line x1="3" y1="18" x2="21" y2="18" />
-                        </svg>
-                        <span className="sidebar-toggle-label">Threads</span>
-                    </button>
+                {!isMobile && (
+                    <div className="sidebar-toggle-strip" title={isSidebarOpen ? "Hide threads" : "Show threads"}>
+                        <button
+                            type="button"
+                            className="sidebar-toggle-btn"
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                            aria-label={isSidebarOpen ? "Hide threads" : "Show threads"}
+                            aria-expanded={isSidebarOpen}
+                        >
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="3" y1="12" x2="21" y2="12" />
+                                <line x1="3" y1="6" x2="21" y2="6" />
+                                <line x1="3" y1="18" x2="21" y2="18" />
+                            </svg>
+                            <span className="sidebar-toggle-label">Threads</span>
+                        </button>
 
-                    <button
-                        type="button"
-                        className="sidebar-toggle-btn"
-                        onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-                        title={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
-                        style={{ marginTop: '12px' }}
-                    >
-                        {theme === 'dark' ? (
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <circle cx="12" cy="12" r="5"></circle>
-                                <line x1="12" y1="1" x2="12" y2="3"></line>
-                                <line x1="12" y1="21" x2="12" y2="23"></line>
-                                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-                                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-                                <line x1="1" y1="12" x2="3" y2="12"></line>
-                                <line x1="21" y1="12" x2="23" y2="12"></line>
-                                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-                                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-                            </svg>
-                        ) : (
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                            </svg>
-                        )}
-                    </button>
-                </div>
+                        <button
+                            type="button"
+                            className="sidebar-toggle-btn"
+                            onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+                            title={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
+                            style={{ marginTop: '12px' }}
+                        >
+                            {theme === 'dark' ? (
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="5"></circle>
+                                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                                </svg>
+                            ) : (
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                                </svg>
+                            )}
+                        </button>
+                    </div>
+                )}
 
                 <Sidebar
                     sessions={sessions}
@@ -1153,6 +1167,13 @@ function App() {
                     isLoading={isLoading}
                     isOpen={isSidebarOpen}
                 />
+
+                {isMobile && isSidebarOpen && (
+                    <div
+                        className="app-sidebar-overlay"
+                        onClick={() => setIsSidebarOpen(false)}
+                    />
+                )}
 
                 {(() => {
                     const codeGroups = [];
@@ -1186,10 +1207,126 @@ function App() {
                             });
                         }
                     }
+
+                    const chatPanelContent = (
+                        <>
+                            <div className="messages-area">
+                                {!currentSessionId && messages.length === 0 ? (
+                                    <div className="empty-state">
+                                        <h2 className="empty-state-heading">What would you like to work on?</h2>
+                                        <p className="empty-state-text">Type below to get started.</p>
+                                        <SignedOut>
+                                            <p className="empty-state-hint">Sign in to save your threads and history.</p>
+                                        </SignedOut>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {messages.length === 0 && !isLoading && !streamingContent && (
+                                            <div className="empty-state empty-state-small">
+                                                <p className="empty-state-text">No messages in this thread.</p>
+                                            </div>
+                                        )}
+
+                                        {messages.map((message, index) => (
+                                            <div key={index} className={`message ${message.role}`}>
+                                                <div className="message-content">{renderMessageContent(message, index)}</div>
+                                            </div>
+                                        ))}
+
+                                        {isLoading && streamingContent && renderStreamingContent()}
+                                    </>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            <div className="composer">
+                                {uploadedFileName && (
+                                    <div className="composer-attachment">
+                                        <span className="composer-attachment-name">{uploadedFileName}</span>
+                                        <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
+                                    </div>
+                                )}
+                                <div className="composer-inner">
+                                    <button type="button" className="composer-attach-btn" onClick={() => fileInputRef.current?.click()} title="Attach file" aria-label="Attach file">
+                                        {isUploading ? <span className="composer-spinner" /> : (
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                    <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+                                    <textarea
+                                        ref={textareaRef}
+                                        value={input}
+                                        onChange={e => setInput(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSend();
+                                            }
+                                        }}
+                                        placeholder="Ask anything or describe your task…"
+                                        rows={1}
+                                        className="composer-input"
+                                        aria-label="Message"
+                                    />
+                                    <button type="button" onClick={handleSend} disabled={isLoading || !input.trim()} className="composer-send-btn" aria-label="Send">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <line x1="22" y1="2" x2="11" y2="13" />
+                                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    );
+
+                    const codePanelContent = (
+                        <>
+                            <div className="code-output-header">
+                                <div className="code-output-header-top">
+                                    <span className="code-output-label">Code output</span>
+                                </div>
+                            </div>
+                            <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
+                                {codeGroups.length > 0 ? (
+                                    codeGroups.map((group, groupIdx) => (
+                                        <div key={group.id} className="code-group">
+                                            <div className="code-group-header">
+                                                <span className="code-group-title">{group.title}</span>
+                                            </div>
+                                            {group.cells.map((cell, idx) => <RunBlock key={`${group.id}-${idx}`} cell={cell} />)}
+                                            {groupIdx < codeGroups.length - 1 && <div className="code-group-separator" />}
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="workspace-code-placeholder">
+                                        {streamingContent ? 'Waiting for output…' : 'Code from your runs will appear here.'}
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    );
+
                     return (
                         <div className="main-workspace">
                             <header className="app-header">
                                 <div className="app-header-left">
+                                    {isMobile && (
+                                        <button
+                                            type="button"
+                                            className="app-header-menu-btn"
+                                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                                            aria-label="Toggle sidebar"
+                                            style={{ marginRight: '8px' }}
+                                        >
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <line x1="3" y1="12" x2="21" y2="12" />
+                                                <line x1="3" y1="6" x2="21" y2="6" />
+                                                <line x1="3" y1="18" x2="21" y2="18" />
+                                            </svg>
+                                        </button>
+                                    )}
                                     <span className="app-logo" aria-hidden>
                                         <img src="/favicon.png" alt="Solver" width="28" height="28" />
                                     </span>
@@ -1217,115 +1354,34 @@ function App() {
                             <ResizableSplitLayout
                                 widthPercent={codePanelWidth}
                                 setWidthPercent={setCodePanelWidth}
-                                leftClassName="chat-panel"
-                                rightClassName="code-output-panel"
-                                left={
-                                    <>
-
-
-                                        <div className="messages-area">
-                                            {!currentSessionId && messages.length === 0 ? (
-                                                <div className="empty-state">
-                                                    <h2 className="empty-state-heading">What would you like to work on?</h2>
-                                                    <p className="empty-state-text">Type below to get started.</p>
-                                                    <SignedOut>
-                                                        <p className="empty-state-hint">Sign in to save your threads and history.</p>
-                                                    </SignedOut>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    {messages.length === 0 && !isLoading && !streamingContent && (
-                                                        <div className="empty-state empty-state-small">
-                                                            <p className="empty-state-text">No messages in this thread.</p>
-                                                        </div>
-                                                    )}
-
-                                                    {messages.map((message, index) => (
-                                                        <div key={index} className={`message ${message.role}`}>
-                                                            <div className="message-content">{renderMessageContent(message, index)}</div>
-                                                        </div>
-                                                    ))}
-
-                                                    {isLoading && streamingContent && renderStreamingContent()}
-                                                </>
-                                            )}
-                                            <div ref={messagesEndRef} />
-                                        </div>
-
-                                        <div className="composer">
-                                            {uploadedFileName && (
-                                                <div className="composer-attachment">
-                                                    <span className="composer-attachment-name">{uploadedFileName}</span>
-                                                    <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
-                                                </div>
-                                            )}
-                                            <div className="composer-inner">
-                                                <button type="button" className="composer-attach-btn" onClick={() => fileInputRef.current?.click()} title="Attach file" aria-label="Attach file">
-                                                    {isUploading ? <span className="composer-spinner" /> : (
-                                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                                                        </svg>
-                                                    )}
-                                                </button>
-                                                <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
-                                                <textarea
-                                                    ref={textareaRef}
-                                                    value={input}
-                                                    onChange={e => setInput(e.target.value)}
-                                                    onKeyDown={e => {
-                                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                                            e.preventDefault();
-                                                            handleSend();
-                                                        }
-                                                    }}
-                                                    placeholder="Ask anything or describe your task…"
-                                                    rows={1}
-                                                    className="composer-input"
-                                                    aria-label="Message"
-                                                />
-                                                <button type="button" onClick={handleSend} disabled={isLoading || !input.trim()} className="composer-send-btn" aria-label="Send">
-                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <line x1="22" y1="2" x2="11" y2="13" />
-                                                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </>
-                                }
-                                right={
-                                    <>
-                                        <div className="code-output-header">
-                                            <div className="code-output-header-top">
-                                                <span className="code-output-label">Code output</span>
-                                            </div>
-                                        </div>
-                                        <div className="code-output-body run-log" ref={streamingCodeRef} style={{ scrollBehavior: 'smooth' }}>
-                                            {codeGroups.length > 0 ? (
-                                                codeGroups.map((group, groupIdx) => (
-                                                    <div key={group.id} className="code-group">
-                                                        <div className="code-group-header">
-                                                            <span className="code-group-title">{group.title}</span>
-                                                        </div>
-                                                        {group.cells.map((cell, idx) => <RunBlock key={`${group.id}-${idx}`} cell={cell} />)}
-                                                        {groupIdx < codeGroups.length - 1 && <div className="code-group-separator" />}
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div className="workspace-code-placeholder">
-                                                    {streamingContent ? 'Waiting for output…' : 'Code from your runs will appear here.'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </>
-                                }
+                                leftClassName={`chat-panel ${isMobile ? 'mobile-full' : ''} ${isMobile && activeMobileTab !== 'chat' ? 'hidden' : ''}`}
+                                rightClassName={`code-output-panel ${isMobile ? 'mobile-full' : ''} ${isMobile && activeMobileTab !== 'code' ? 'hidden' : ''}`}
+                                left={chatPanelContent}
+                                right={codePanelContent}
                             />
                         </div>
                     );
                 })()}
             </div>
+            {isMobile && (
+                <div className="mobile-tab-bar">
+                    <button
+                        className={`mobile-tab-btn ${activeMobileTab === 'chat' ? 'active' : ''}`}
+                        onClick={() => setActiveMobileTab('chat')}
+                    >
+                        Chat
+                    </button>
+                    <button
+                        className={`mobile-tab-btn ${activeMobileTab === 'code' ? 'active' : ''}`}
+                        onClick={() => setActiveMobileTab('code')}
+                    >
+                        Code
+                    </button>
+                </div>
+            )}
         </div>
     )
 }
+
 
 export default App

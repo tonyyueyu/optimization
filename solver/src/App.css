@@ -1534,3 +1534,153 @@ body.resizing .app-split-resizer::after {
   color: var(--text-primary);
   border-color: var(--border-strong);
 }
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .app-layout {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    flex-direction: column;
+  }
+
+  /* Hide the strip on mobile */
+  .sidebar-toggle-strip {
+    display: none;
+  }
+
+  /* Sidebar as overlay */
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+  }
+
+  /* Use transform for animation if needed, but display property is toggled in JS. 
+     Since JS sets display:flex/none, we just position it. 
+     Ideally we'd use transitions but that requires JS refactor.
+  */
+
+  /* Main workspace adjustments */
+  .main-workspace {
+    width: 100%;
+    height: 100%;
+    padding-bottom: 60px;
+    /* Space for tab bar */
+  }
+
+  .app-header {
+    padding: 0 12px;
+  }
+
+  .app-header-title {
+    font-size: 1rem;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .messages-area {
+    padding: 16px 12px;
+  }
+
+  .composer {
+    padding: 0 12px 12px;
+  }
+
+  /* Mobile: Stack panels and hide one based on tab */
+  .chat-panel.mobile-full,
+  .code-output-panel.mobile-full {
+    flex: 1;
+    width: 100% !important;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* Mobile Tab Bar */
+.mobile-tab-bar {
+  display: flex !important;
+  /* Ensure it shows, overriding potentially other rules */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  align-items: center;
+  justify-content: space-around;
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 900;
+}
+
+@media (min-width: 769px) {
+  .mobile-tab-bar {
+    display: none !important;
+  }
+}
+
+.mobile-tab-btn {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border-top: 3px solid transparent;
+  transition: all 0.2s;
+}
+
+.mobile-tab-btn.active {
+  color: var(--accent);
+  border-top-color: var(--accent);
+  background: var(--bg-input);
+}
+
+/* .hidden utility */
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .app-split {
+    flex-direction: column;
+  }
+
+  .app-split-resizer {
+    display: none !important;
+  }
+}
+
+.app-sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  animation: fadeIn 0.2s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
