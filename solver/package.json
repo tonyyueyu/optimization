@@ -32,7 +32,8 @@
   },
   "overrides": {
     "react-latex-next": {
-      "react": "$react"
+      "react": "$react",
+      "react-dom": "$react-dom"
     }
   }
 }
