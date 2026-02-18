@@ -25,9 +25,9 @@ steps:
       - 'managed'
       - '--allow-unauthenticated'
       - '--memory'
-      - '2Gi'
+      - '4Gi'
       - '--cpu'
-      - '1'
+      - '2'
       - '--min-instances'
       - '0'
       - '--max-instances'
@@ -38,7 +38,7 @@ steps:
       - '--timeout'
       - '300'
       - '--update-secrets'
-      - 'GCS_BUCKET_NAME=GCS_BUCKET_NAME:latest,GOOGLE_APPLICATION_CREDENTIALS=GOOGLE_APPLICATION_CREDENTIALS:latest'
+      - 'GCS_BUCKET_NAME=GCS_BUCKET_NAME:latest'
 
 images:
   - 'us-west1-docker.pkg.dev/$PROJECT_ID/mathsolver/executor-service'

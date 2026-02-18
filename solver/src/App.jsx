@@ -12,8 +12,8 @@ import {
 } from '@clerk/clerk-react'
 
 
-// const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
+//const API_BASE = "http://localhost:8000";
 
 
 // ──────── LaTeX delimiter config ────────
@@ -991,12 +991,6 @@ function App() {
 
     const renderAssistantSteps = (message, { messageIndex = null } = {}) => (
         <div className="assistant-message">
-            {message.summary && (
-                <div className="message-summary-block">
-                    <strong className="message-summary-label">Summary</strong>
-                    <div className="message-summary-text">{message.summary}</div>
-                </div>
-            )}
             <div className="run-steps">
                 {message.steps.map((step, index) => {
                     const isFinalSummary = index === message.steps.length - 1 && !step.code;
