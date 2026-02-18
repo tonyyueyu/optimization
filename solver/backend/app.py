@@ -57,7 +57,6 @@ if isCloud:
     EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
 else:
     EXECUTOR_HOST = "http://executor:8000"
-
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "models/gemini-embedding-001"
@@ -477,10 +476,6 @@ async def solve(data: SolveRequest):
                 - **SAVING EXPORTS:** To provide a file for the user to download, you MUST save it to the "exports/" folder. Use: `df.to_csv("exports/results.csv")`.
                 - **PLOTS:** Standard `matplotlib` or `plotly` displays will be captured automatically; you do not need to save them to "exports/" unless the user specifically asks for an image file.
                 - **GCS UPLOADS:** Any file saved to "exports/" will be automatically uploaded to Google Cloud Storage for user download.
-
-                MATH FORMATTING (MANDATORY):
-                - All math in "description" fields MUST use LaTeX delimiters: `$...$` for inline (e.g., "minimize $f(x) = x^2$") and `$$...$$` for display. NEVER write bare math like "x^2" — always wrap it.
-                - NO LaTeX in "code" fields — those must be valid Python only.
 
                 GOAL: Solve this problem: "{user_query}"
 
