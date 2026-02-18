@@ -1,6 +1,6 @@
 FROM mambaorg/micromamba:latest
 
-COPY --chown=$MAMBA_USER:$MAMBA_USER backend/environment.yml /tmp/env.yml
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yml
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
 
@@ -14,6 +14,6 @@ RUN micromamba run -n base python -m ipykernel install --user --name math_kernel
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["micromamba", "run", "-n", "base", "uvicorn", "executor:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["micromamba", "run", "-n", "base", "uvicorn", "executor:app", "--host", "0.0.0.0", "--port", "8080"]
