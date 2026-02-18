@@ -1,24 +1,19 @@
 FROM mambaorg/micromamba:latest
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER backend/environment.yml /tmp/env.yml
-
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
 
-ARG MAMBA_DOCKERFILE_ACTIVATE=1
-
 USER root
-RUN mkdir -p /app/uploads && chown -R $MAMBA_USER:$MAMBA_USER /app
+RUN mkdir -p /app/uploads /app/session_data && \
+    chown -R $MAMBA_USER:$MAMBA_USER /app
 USER $MAMBA_USER
-
 WORKDIR /app
 
-RUN python -m ipykernel install --user --name=math_opt_kernel
+RUN micromamba run -n base python -m ipykernel install --user --name math_kernel --display-name "Math Kernel"
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
 EXPOSE 8000
 
-ENV PATH="$MAMBA_ROOT_PREFIX/bin:$PATH"
-
-CMD ["uvicorn", "executor:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["micromamba", "run", "-n", "base", "uvicorn", "executor:app", "--host", "0.0.0.0", "--port", "8000"]

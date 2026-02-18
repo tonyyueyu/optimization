@@ -2,7 +2,7 @@ import queue
 from jupyter_client import KernelManager
 
 class PersistentKernel:
-    def __init__(self, kernel_name='math_opt_kernel'):
+    def __init__(self, kernel_name='math_kernel'): 
         self.km = KernelManager(kernel_name=kernel_name)
         self.km.start_kernel()
         self.kc = self.km.client()

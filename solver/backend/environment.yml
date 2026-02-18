@@ -15,8 +15,6 @@ dependencies:
   - ipykernel
   - jupyterlab
   - google-cloud-storage
-  - time
-  - typing
 
   # --- High-Performance Data & ML ---
   - polars                # <--- Industrial alternative to Pandas
@@ -28,9 +26,6 @@ dependencies:
   - torchvision
   - jax                   # <--- Google's JIT-compiled Numerical Lib
   - jaxlib
-  - openpyxl
-  - seaborn
-  - plotly
 
   # --- Math & Data Science (Legacy Support) ---
   - numpy
@@ -38,6 +33,11 @@ dependencies:
   - pandas
   - sympy
   - matplotlib
+  - seaborn
+  - scikit-learn
+  - scikit-optimize
+  - openpyxl
+  - plotly
 
   # --- Optimization Frameworks ---
   - cvxpy

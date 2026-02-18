@@ -20,7 +20,7 @@ services:
       - ./gcs-key.json:/app/gcs-key.json
     environment:
       - PORT=8080
-      # - EXECUTOR_HOST=http://executor:8000  <-- Commented out
+      - EXECUTOR_HOST=http://executor:8000
       # --- GCS ADDITIONS ---
       - GCS_BUCKET_NAME=hippo-storage
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
@@ -28,24 +28,24 @@ services:
   # ----------------------------
   # 2. The Math Executor (FULLY DISABLED)
   # ----------------------------
-  # executor:
-  #   build:
-  #     context: .
-  #     dockerfile: backend/Dockerfile.executor
-  #   container_name: local-executor
-  #   working_dir: /app/backend
-  #   ports:
-  #     - "8001:8000"
-  #   env_file:
-  #     - ./backend/.env
-  #   volumes:
-  #     # Also mount the key here so the executor can upload generated files
-  #     - ./gcs-key.json:/app/gcs-key.json
-  #   environment:
-  #     - PORT=8000
-  #     # --- GCS ADDITIONS ---
-  #     - GCS_BUCKET_NAME=hippo-storage
-  #     - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
+  executor:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.executor
+    container_name: local-executor
+    working_dir: /app/backend
+    ports:
+      - "8001:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Also mount the key here so the executor can upload generated files
+      - ./gcs-key.json:/app/gcs-key.json
+    environment:
+      - PORT=8000
+      # --- GCS ADDITIONS ---
+      - GCS_BUCKET_NAME=hippo-storage
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-key.json
 
   # ----------------------------
   # 3. The Vite Frontend
