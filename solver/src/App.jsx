@@ -12,9 +12,7 @@ import {
 } from '@clerk/clerk-react'
 
 
-const API_BASE = window.location.hostname === "localhost"
-    ? "http://localhost:8000"
-    : "https://backend-service-696616516071.us-west1.run.app";
+const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
 
 // ──────── LaTeX delimiter config ────────
 const LATEX_DELIMITERS = [
@@ -936,14 +934,7 @@ function App() {
                         <SafeLatex>{step.description}</SafeLatex>
                     </div>
                 )}
-                {(step.output || step.error) && !isSummary && (
-                    <div className={`run-step-outcome ${step.error ? 'run-step-outcome-error' : ''}`}>
-                        {step.error
-                            ? <span>Error: <SafeLatex>{step.error}</SafeLatex></span>
-                            : <SafeLatex>{step.output}</SafeLatex>
-                        }
-                    </div>
-                )}
+
             </div>
         </div>
     );
