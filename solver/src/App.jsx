@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
+import 'katex/dist/katex.min.css';
+import Latex from 'react-latex-next';
 import {
     SignedIn,
     SignedOut,
@@ -9,10 +11,25 @@ import {
     useUser
 } from '@clerk/clerk-react'
 
+
 const API_BASE = window.location.hostname === "localhost"
     ? "http://localhost:8000"
     : "https://backend-service-696616516071.us-west1.run.app";
 
+// ──────── LaTeX delimiter config ────────
+const LATEX_DELIMITERS = [
+    { left: '$$', right: '$$', display: true },
+    { left: '\\[', right: '\\]', display: true },
+    { left: '$', right: '$', display: false },
+    { left: '\\(', right: '\\)', display: false },
+];
+
+const SafeLatex = ({ children }) => (
+    <Latex delimiters={LATEX_DELIMITERS} strict={false}>
+        {String(children ?? '')}
+    </Latex>
+);
+// ────────────────────────────────────────
 
 const logErrorToBackend = async (message, stack = null, additionalData = null) => {
     try {
@@ -181,7 +198,7 @@ const RunBlock = ({ cell }) => {
                 {(cell.output || cell.error) && (
                     <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
                         {cell.error ? <strong>Error: </strong> : null}
-                        {cell.output || cell.error}
+                        <SafeLatex>{cell.output || cell.error}</SafeLatex>
                     </div>
                 )}
 
@@ -193,7 +210,6 @@ const RunBlock = ({ cell }) => {
                     </div>
                 )}
 
-                {/* UPDATED FILE SECTION */}
                 {cell.files && cell.files.length > 0 && (
                     <div className="run-block-files">
                         {cell.files.map((file, idx) => (
@@ -476,8 +492,7 @@ function App() {
     }, [currentSessionId, isSignedIn, user?.id, fetchSessionMessages]);
 
     useEffect(() => {
-        // Clear the current active run state when switching threads
-        setStreamingContent(null); // <--- Add this line
+        setStreamingContent(null);
         setUploadedFileName(null);
         setFileContext(null);
     }, [currentSessionId]);
@@ -528,7 +543,6 @@ function App() {
         let sessionId = currentSessionId;
 
         try {
-            // 1. If no session exists, create one immediately
             if (!sessionId) {
                 const isAnonymous = !isSignedIn || !user?.id;
                 const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
@@ -543,18 +557,17 @@ function App() {
                 if (createRes.ok) {
                     const sData = await createRes.json();
                     sessionId = sData.session_id;
-                    setCurrentSessionId(sessionId); // Set for the rest of the app
-                    if (!isAnonymous) fetchSessions(user.id); // Refresh sidebar
+                    setCurrentSessionId(sessionId);
+                    if (!isAnonymous) fetchSessions(user.id);
                 } else {
                     throw new Error("Failed to initialize session for upload.");
                 }
             }
 
-            // 2. Now proceed with the upload using the (newly created or existing) sessionId
             const formData = new FormData();
             formData.append('file', file);
             formData.append('user_id', user?.id || 'anonymous');
-            formData.append('session_id', sessionId); // <--- We now definitely have this
+            formData.append('session_id', sessionId);
 
             const response = await fetch(`${API_BASE}/api/upload`, {
                 method: 'POST',
@@ -617,16 +630,12 @@ function App() {
     const handleModifyPrompt = async (index, newQuery) => {
         console.log("Modifying prompt at index:", index);
 
-        // 1. Close the edit UI
         setEditingIndex(null);
 
-        // 2. Prepare the truncated history locally
         const truncatedHistory = messages.slice(0, index);
         setMessages(truncatedHistory);
 
         try {
-            // 3. ONLY call the backend if we actually have a session to truncate
-            // This allows Guest users and new chats to work without errors
             if (currentSessionId && isSignedIn) {
                 await fetch(`${API_BASE}/api/prompt/modify`, {
                     method: 'POST',
@@ -640,13 +649,10 @@ function App() {
                 });
             }
 
-            // 4. Trigger the new search
-            // Pass 'true' as the third argument to bypass the isLoading lock
             await handleSend(newQuery, truncatedHistory, true);
 
         } catch (e) {
             console.error("Modify error:", e);
-            // If it fails, we still want to stop the loading spinner
             setIsLoading(false);
         }
     };
@@ -654,10 +660,9 @@ function App() {
     const handleSend = async (overrideQuery = null, overrideHistory = null, isRetry = false) => {
         const queryToUse = (overrideQuery !== null) ? overrideQuery : input;
 
-        // CHANGE: Allow the call if isRetry is true
         if (!queryToUse.trim() || (isLoading && !isRetry)) return;
 
-        setIsLoading(true); // Start loading here
+        setIsLoading(true);
 
         const isAnonymous = !isSignedIn || !user?.id;
         const userMessageText = queryToUse.trim();
@@ -711,7 +716,6 @@ function App() {
         abortControllerRef.current = new AbortController();
 
         try {
-            // Use baseHistory here instead of messages
             const formattedHistory = baseHistory.map(msg => {
                 if (msg.role === 'user') return { role: 'user', content: msg.content || '' };
                 if (msg.role === 'assistant') {
@@ -731,7 +735,7 @@ function App() {
                     user_query: finalQuery,
                     user_id: user?.id,
                     session_id: targetSessionId,
-                    chat_history: formattedHistory // Now uses the correct truncated history
+                    chat_history: formattedHistory
                 }),
                 signal: abortControllerRef.current.signal
             });
@@ -867,7 +871,6 @@ function App() {
                     files: event.data.step.files || [],
                 };
                 setStreamingContent(prev => {
-                    // If prev is null/undefined, bootstrap a fresh state
                     if (!prev) {
                         return {
                             steps: [formattedStep],
@@ -915,10 +918,17 @@ function App() {
             </span>
             <div className="run-step-body">
                 <div className="run-step-title">{isSummary ? 'Summary' : step.title}</div>
-                {step.description && <div className="run-step-desc">{step.description}</div>}
+                {step.description && (
+                    <div className="run-step-desc">
+                        <SafeLatex>{step.description}</SafeLatex>
+                    </div>
+                )}
                 {(step.output || step.error) && !isSummary && (
                     <div className={`run-step-outcome ${step.error ? 'run-step-outcome-error' : ''}`}>
-                        {step.error ? `Error: ${step.error}` : step.output}
+                        {step.error
+                            ? <span>Error: <SafeLatex>{step.error}</SafeLatex></span>
+                            : <SafeLatex>{step.output}</SafeLatex>
+                        }
                     </div>
                 )}
             </div>
@@ -970,7 +980,6 @@ function App() {
         if (message.role === 'assistant') {
             return renderPlainText(message.content);
         }
-        // PASS THE INDEX HERE
         return renderUserMessage(message.content, messageIndex);
     }
 
@@ -999,7 +1008,9 @@ function App() {
 
     const renderPlainText = (text = '') => (
         <div className="assistant-message">
-            <pre className="plain-response">{text}</pre>
+            <div className="plain-response" style={{ whiteSpace: 'pre-wrap' }}>
+                <SafeLatex>{text}</SafeLatex>
+            </div>
         </div>
     )
 
@@ -1053,18 +1064,15 @@ function App() {
         );
     }
     useEffect(() => {
-        // We only want to attempt cleanup if there is an active session
         if (!currentSessionId) return;
 
         const handleTabClose = () => {
-            const url = `${API_BASE}/api/session/close`; // Uses your dynamic dynamic base
+            const url = `${API_BASE}/api/session/close`;
             const payload = JSON.stringify({
-                user_id: user?.id || 'anonymous', // Correctly access Clerk user ID
+                user_id: user?.id || 'anonymous',
                 session_id: currentSessionId
             });
 
-            // 'keepalive: true' is essential. It tells the browser to finish 
-            // the request even if the tab is fully destroyed.
             fetch(url, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -1075,7 +1083,7 @@ function App() {
 
         window.addEventListener("beforeunload", handleTabClose);
         return () => window.removeEventListener("beforeunload", handleTabClose);
-    }, [currentSessionId, user?.id, API_BASE]); // Dependencies ensure the listener stays updated
+    }, [currentSessionId, user?.id, API_BASE]);
 
     if (!isLoaded) return <div className="app app-loading">Starting…</div>;
 
@@ -1090,7 +1098,7 @@ function App() {
                     onClose={() => setIsDeleteModalOpen(false)}
                     onConfirm={confirmDeleteSession}
                     title="Remove this thread?"
-                    message="This thread and its messages will be permanently removed. You can’t undo this."
+                    message="This thread and its messages will be permanently removed. You can't undo this."
                 />
 
                 <div className="sidebar-toggle-strip" title={isSidebarOpen ? "Hide threads" : "Show threads"}>
@@ -1153,7 +1161,6 @@ function App() {
                         if (msg.role === 'assistant' && msg.type === 'steps' && msg.steps?.length) {
                             const cells = extractCodeCells(msg.steps);
 
-                            // IF SINGLE STEP, Rename to "Solution"
                             if (msg.steps.length === 1 && cells.length === 1) {
                                 cells[0].stepNumber = "Solution";
                             }
