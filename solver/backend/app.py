@@ -54,7 +54,8 @@ STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
 
 isCloud = True
 if isCloud:
-    EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
+    # EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
+    EXECUTOR_HOST = "https://executor-service-test-696616516071.us-west1.run.app"
 else:
     EXECUTOR_HOST = "http://executor:8000"
 EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"

@@ -1,10 +1,13 @@
 FROM mambaorg/micromamba:latest
 
-COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yml
+# Use ENV instead of ARG so it persists at runtime in Cloud Run
+ENV MAMBA_DOCKERFILE_ACTIVATE=1
+
+# Since you are running from the 'backend' directory, environment.yml is now in the root of the context
+COPY --chown=$MAMBA_USER:$MAMBA_USER backend/environment.yml /tmp/env.yml
+
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
-
-ARG MAMBA_DOCKERFILE_ACTIVATE=1
 
 USER root
 RUN mkdir -p /app/uploads /app/session_data && \
@@ -12,10 +15,14 @@ RUN mkdir -p /app/uploads /app/session_data && \
 USER $MAMBA_USER
 WORKDIR /app
 
+# Ensure kernel is installed in the base environment
 RUN micromamba run -n base python -m ipykernel install --user --name math_kernel --display-name "Math Kernel"
 
+# Copy your source code (executor.py, etc.)
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
 EXPOSE 8080
 
-CMD micromamba run -n base uvicorn executor:app --host 0.0.0.0 --port ${PORT:-8080}
+# Use the absolute path to the micromamba entrypoint script 
+# followed by 'sh -c' to ensure ${PORT} is expanded correctly by the shell.
+CMD ["/usr/local/bin/_entrypoint.sh", "sh", "-c", "uvicorn executor:app --host 0.0.0.0 --port ${PORT:-8080}"]
