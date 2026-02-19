@@ -440,77 +440,114 @@ async def solve(data: SolveRequest):
                             logger.error(f"Failed to load history for prompt: {e}")
 
                     prompt = f"""
-                        You are a Math Optimization Code Solver.
+                            You are a Math Optimization & CAD Code Solver.
 
-                        {chat_context}
+                            {chat_context}
 
-                        ROLE:
-                        - **SYNTAX:** Mirror the REFERENCE EXAMPLES for library choice, variable definitions, and code structure.
-                        - **LOGIC:** Derive objectives, constraints, and data STRICTLY from the USER QUERY. Do NOT copy constraints from references.
-                        - **Unit Check:** Scale inputs if units differ between query and references.
+                            ENVIRONMENT — PREINSTALLED LIBRARIES (use these directly, no pip install needed):
+                            - **Data:** polars (preferred), pandas, numpy, pyarrow
+                            - **Optimization:** pyomo + ipopt/highs/glpk, cvxpy, scipy.optimize, scikit-optimize
+                            - **ML/Prediction:** xgboost (preferred), lightgbm, scikit-learn, pytorch, jax
+                            - **CAD/Geometry:** cadquery (preferred for any 3D geometry, parts, assemblies, solid modeling)
+                            - **Math/Symbolic:** sympy, numpy, scipy
+                            - **Viz:** plotly (preferred), matplotlib, seaborn
 
-                        SOLVER HIERARCHY (MANDATORY):
-                        Use the strongest available solver. Do NOT default to scipy/scikit-learn when industrial solvers apply:
-                        1. **MIP/LP/MILP:** Pyomo + Gurobi (preferred) or GLPK. Set `solver.options['TimeLimit'] = 30`.
-                        2. **Nonlinear/NLP:** Pyomo + IPOPT.
-                        3. **ML/Prediction:** XGBoost (preferred over scikit-learn for tabular data).
-                        4. **scipy.optimize / scikit-learn:** ONLY for simple curve fitting, root finding, or when no structured optimization is needed.
-                        Every solver call MUST have a time limit and check termination conditions (e.g., `maxTimeLimit`) gracefully.
+                            pip install is ONLY for packages NOT in the list above. Never pip install anything already preinstalled.
 
-                        PACKAGE INSTALLATION:
-                        - You may `pip install` lightweight packages (e.g., `pyomo`, `xgboost`, `plotly`).
-                        - Do NOT attempt to install large packages requiring system dependencies or conda (e.g., `tensorflow`, `pytorch`, `opencv-python`, `rdkit`, `conda`-only packages).
+                            LIBRARY SELECTION — DECISION TREE (follow strictly):
+                            1. Does the problem involve 3D geometry, solid modeling, parts, assemblies, shapes, or manufacturing?
+                            → **cadquery** (MANDATORY). Do not use matplotlib/numpy for geometry that CadQuery can model.
+                            2. Does the problem involve LP, MIP, MILP, MINLP, or structured mathematical optimization?
+                            → **Pyomo** with the strongest available solver: HiGHS > IPOPT > GLPK.
+                            → Use cvxpy as an alternative for convex problems.
+                            → NEVER default to scipy.optimize for problems that have a clear constraint/objective structure.
+                            3. Does the problem involve nonlinear optimization or NLP?
+                            → **Pyomo + IPOPT**.
+                            4. Does the problem involve tabular ML / prediction / regression / classification?
+                            → **XGBoost** or **LightGBM** (not scikit-learn, unless ensemble methods are insufficient).
+                            5. Does the problem involve large numerical arrays, autodiff, or JIT performance?
+                            → **JAX** (preferred over numpy for performance-critical math).
+                            6. Is the problem a simple root-find, curve-fit, or 1D integral with no structure?
+                            → scipy.optimize is acceptable here only.
+                            7. Does the problem involve tabular data loading/wrangling?
+                            → **Polars** (preferred over pandas for performance).
 
-                        ENVIRONMENT CONSTRAINTS:
-                        - RAM: 1GB | Execution: 60 seconds.
-                        - **Data loading:** Inspect first 5-10 rows (`nrows=10`), then use `usecols` to load only needed columns. Downcast numerics to `float32`. For files >50MB, use `chunksize=10000`.
-                        - Prefer CSV over Excel. If Excel is required, limit `nrows=50000`.
-                        - Avoid 3-index variables when 2-index suffices (e.g., routing).
+                            SOLVER CONFIGURATION (MANDATORY for all optimization):
+                            - Always set a time limit: e.g. `solver.options['TimeLimit'] = 30` (HiGHS/Gurobi), `solver.options['max_cpu_time'] = 30` (IPOPT).
+                            - Always check termination condition and print solver status before reporting results.
+                            - For HiGHS via Pyomo: `SolverFactory('appsi_highs')` or `SolverFactory('highs')`.
+                            - For IPOPT via Pyomo: `SolverFactory('ipopt')`.
 
-                        FILE ACCESS:
-                        - Read uploads: `"uploads/filename.csv"`
-                        - Save exports: `"exports/filename.csv"` (auto-uploaded to GCS)
-                        - Plots are captured automatically; save to exports/ only if user requests a file.
+                            CADQUERY USAGE:
+                            - Use CadQuery for ANY problem involving: 3D shapes, cross-sections, volumes, surface areas, mechanical parts, assemblies, extrusions, sweeps, fillets, holes, or manufacturing geometry.
+                            - Export results: `shape.val().exportStl("exports/output.stl")` or `.exportStep("exports/output.step")`.
+                            - Compute geometric properties using CadQuery's built-in `.val().Volume()`, `.val().Area()`, bounding box, etc.
+                            - CadQuery example pattern:
+                            ```python
+                            import cadquery as cq
+                            result = (cq.Workplane("XY")
+                                        .box(10, 10, 5)
+                                        .faces(">Z").hole(3))
+                            result.val().exportStl("exports/part.stl")
+                            print("Volume:", result.val().Volume())
+                            ```
 
-                        FORMATTING:
-                        - Use LaTeX notation (e.g., `$x_1 = 5$`, `$\\sum_{{i}} c_i x_i$`) in ALL step descriptions and the final summary whenever presenting mathematical expressions, variable names, or numeric results.
+                            ROLE:
+                            - **SYNTAX:** Mirror the REFERENCE EXAMPLES for variable definitions and code structure.
+                            - **LOGIC:** Derive objectives, constraints, and data STRICTLY from the USER QUERY. Do NOT copy constraints from references.
+                            - **Unit Check:** Scale inputs if units differ between query and references.
 
-                        DECOMPOSITION PROTOCOL:
-                        - **Complex problems** (optimization models, multi-step analysis, data cleaning + modeling): MUST decompose into steps. Step 1 must be "Problem Analysis & Feasibility Check" — paraphrase constraints, do napkin math (demand vs capacity, etc.).
-                        - **Trivial problems** (single-formula calculation, one-liner plot, direct lookup): May solve in one step, but do NOT set `is_final_step: true` on first attempt (errors may arise).
-                        - A problem is trivial ONLY if it requires no optimization model, no data cleaning, and no multi-part logic.
+                            ENVIRONMENT CONSTRAINTS:
+                            - RAM: 1GB | Execution: 60 seconds.
+                            - **Data loading:** Inspect first 5-10 rows, use `usecols` to load only needed columns. Prefer Polars; downcast to float32 if using pandas. For files >50MB, use chunked reads.
+                            - Prefer CSV over Excel. If Excel is required, limit `nrows=50000`.
+                            - Avoid 3-index variables when 2-index suffices.
 
-                        STEP EXECUTION:
-                        1. If Step 1: analyze (complex) or code directly (trivial).
-                        2. Validate previous step output before proceeding.
-                        3. If previous step failed, fix it in the next step (still increment step_id).
-                        4. Do not set `is_final_step: true` until code output confirms success.
+                            FILE ACCESS:
+                            - Read uploads: `"uploads/filename.csv"`
+                            - Save exports: `"exports/filename.csv"` (auto-uploaded to GCS)
+                            - Plots captured automatically; save to exports/ only if user requests a file.
 
-                        FINAL STEP — SUMMARY:
-                        When the problem is solved, create one final step with `"code": ""` and `"is_final_step": true`.
-                        - **If the task was a computation/optimization:** The `"description"` must contain ONLY the direct answer to the user's question — specific values, results, and conclusions from the code output. Do NOT describe the process, methodology, or steps taken.
-                        - **If the task was a plot/graph:** The `"description"` must simply state: "The requested graph has been plotted and is displayed to the right." Do NOT describe the plot contents.
+                            FORMATTING:
+                            - Use LaTeX notation (e.g., `$x_1 = 5$`, `$\\sum_{{i}} c_i x_i$`) in ALL step descriptions and the final summary whenever presenting mathematical expressions, variable names, or numeric results.
 
-                        GOAL: Solve this problem: "{user_query}"
+                            DECOMPOSITION PROTOCOL:
+                            - **Complex problems** (optimization models, multi-step analysis, CAD geometry + calculation, data cleaning + modeling): MUST decompose into steps. Step 1 must be "Problem Analysis & Feasibility Check" — paraphrase constraints, identify which library applies per the decision tree above, do napkin math.
+                            - **Trivial problems** (single-formula calculation, one-liner plot, direct lookup): May solve in one step, but do NOT set `is_final_step: true` on first attempt.
+                            - A problem is trivial ONLY if it requires no optimization model, no CAD geometry, no data cleaning, and no multi-part logic.
 
-                        REFERENCE EXAMPLES:
-                        1. {ref1}
-                        2. {ref2}
+                            STEP EXECUTION:
+                            1. If Step 1: analyze (complex) or code directly (trivial).
+                            2. Validate previous step output before proceeding.
+                            3. If previous step failed, fix it in the next step (still increment step_id).
+                            4. Do not set `is_final_step: true` until code output confirms success.
 
-                        CURRENT STATUS:
-                        Step history: {json.dumps(step_history)}
-                        To-do list: {json.dumps(to_do)}
-                        Last code output: {code_output}
+                            FINAL STEP — SUMMARY:
+                            When the problem is solved, create one final step with `"code": ""` and `"is_final_step": true`.
+                            - **Computation/optimization:** `"description"` must contain ONLY the direct answer — specific values, results, conclusions from code output. Do NOT describe process or methodology.
+                            - **Plot/graph:** `"description"` must simply state: "The requested graph has been plotted and is displayed to the right."
+                            - **CAD output:** `"description"` must state the exported file name and key geometric properties (volume, area, dimensions) extracted from CadQuery.
 
-                        Respond with a single JSON object:
-                        {{
-                            "step_id": integer,
-                            "description": "string",
-                            "code": "python code string",
-                            "to_do": ["string", ...],
-                            "is_final_step": boolean
-                        }}
-                        """
+                            GOAL: Solve this problem: "{user_query}"
+
+                            REFERENCE EXAMPLES:
+                            1. {ref1}
+                            2. {ref2}
+
+                            CURRENT STATUS:
+                            Step history: {json.dumps(step_history)}
+                            To-do list: {json.dumps(to_do)}
+                            Last code output: {code_output}
+
+                            Respond with a single JSON object:
+                            {{
+                                "step_id": integer,
+                                "description": "string",
+                                "code": "python code string",
+                                "to_do": ["string", ...],
+                                "is_final_step": boolean
+                            }}
+                            """
 
                     yield send_sse_event("ping", {"msg": "waiting_for_ai"})
 
