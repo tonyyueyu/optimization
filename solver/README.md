@@ -1,6 +1,6 @@
 # Optimization Solver
 
-An AI-powered application for formulating and solving mathematical optimization problems. It uses Google's Gemini 2.5 Pro to generate and execute Python code in containerized kernels.
+An AI-powered application for formulating and solving mathematical optimization problems. It uses Google's gemini-3-flash-preview to generate and execute Python code in containerized kernels.
 
 ## Overview
 
