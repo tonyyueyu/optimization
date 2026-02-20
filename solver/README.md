@@ -12,7 +12,7 @@ A key feature is the persistent execution context, which maintains state across 
 
 - **Natural Language Interface:** Describe optimization problems in plain text to get modeled and executed solutions.
 - **Stateful Execution:** Maintains variables and data across chat prompts using a persistent Jupyter kernel.
-- **Supported Paradigms:** Linear, Mixed-Integer, Non-Linear optimization, and standard tabular data analysis.
+- **Supported Paradigms:** Linear, Mixed-Integer, Non-Linear optimization, CAD modeling and analysis (via CadQuery), and standard tabular data analysis.
 - **RAG Context:** Uses Pinecone to retrieve similar past formulations and guide the LLM's code generation.
 - **File Uploads:** Upload CSV/Excel datasets to Google Cloud Storage (GCS) to be loaded directly into the solver environment.
 - **UI:** React frontend with LaTeX rendering and collapsible execution steps.
