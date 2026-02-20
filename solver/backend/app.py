@@ -21,17 +21,19 @@ from datetime import timedelta
 from google.cloud import storage
 
 
-# 1. Patch HTTPX (Keep this at the very top)
 _original_async_client_init = httpx.AsyncClient.__init__
 def _patched_async_client_init(self, *args, **kwargs):
     kwargs['timeout'] = httpx.Timeout(600.0, connect=60.0, read=600.0, write=60.0, pool=60.0)
     return _original_async_client_init(self, *args, **kwargs)
 httpx.AsyncClient.__init__ = _patched_async_client_init
 
-# 2. Environment & Logging
 load_dotenv()
 
 def setup_logger():
+    """
+    Sets up the application logger, including Google Cloud Logging 
+    if running in a deployed environment (K_SERVICE).
+    """
     l = logging.getLogger("backend-logger")
     l.setLevel(logging.INFO)
     if os.getenv("K_SERVICE"):
@@ -47,7 +49,6 @@ def setup_logger():
 
 logger = setup_logger()
 
-# 3. Safe Global State
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
@@ -64,7 +65,6 @@ EMBEDDING_MODEL_NAME = "models/gemini-embedding-001"
 storage_client = None
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 
-# GLOBAL CLIENTS
 genai_client = None
 index = None
 history_manager = HistoryManager()
@@ -85,7 +85,6 @@ else:
     except Exception as e:
         logger.error(f"❌ Pinecone Init Failed: {e}")
 
-# --- FastAPI app ---
 app = FastAPI()
 
 app.add_middleware(
@@ -98,7 +97,6 @@ app.add_middleware(
 )
 
 
-# -------------------- Pydantic Models --------------------
 class RetrieveRequest(BaseModel):
     query: str
 
@@ -138,7 +136,6 @@ class ModifyPromptRequest(BaseModel):
     new_query: str
 
 
-# -------------------- Helper Functions --------------------
 def send_sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
@@ -184,8 +181,6 @@ def get_user_storage_usage(user_id: str):
         logger.error(f"Error checking storage usage: {e}")
         return 0
 
-
-# -------------------- API Endpoints --------------------
 
 @app.post("/api/upload")
 async def upload_proxy(
@@ -253,6 +248,10 @@ OPTIMIZATION_TAGS = [
 
 
 async def get_references(query: str, chat_history: list):
+    """
+    Retrieves reference examples from Pinecone based on the user's query.
+    Extracts tags using a lightweight LLM call to filter relevant math/optimization categories.
+    """
     try:
         search_query = query
 
@@ -323,6 +322,7 @@ async def get_references(query: str, chat_history: list):
 
 
 def format_reference(data):
+    """Formats the retrieved reference data into a structured prompt string."""
     if not data:
         return ""
     return f"PROBLEM: {data.get('problem')}\nSTEPS: {json.dumps(data.get('steps'))}"
@@ -342,6 +342,11 @@ async def modify_prompt(data: ModifyPromptRequest):
 
 @app.post("/api/solve")
 async def solve(data: SolveRequest):
+    """
+    Main endpoint for solving optimization/math problems.
+    Generates steps using Gemini, executes them in a remote kernel (executor),
+    and streams back the execution updates and final results via SSE.
+    """
     user_query = data.user_query.strip()
     if not user_query:
         raise HTTPException(status_code=400, detail="User query is required")
@@ -359,7 +364,6 @@ async def solve(data: SolveRequest):
         )
 
         try:
-            # --- CONFIGURATION ---
             config = types.GenerateContentConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
@@ -397,7 +401,6 @@ async def solve(data: SolveRequest):
                 try:
                     yield send_sse_event("step_start", {"step_number": step_number, "status": "generating"})
 
-                    # --- Build chat context ---
                     chat_context = ""
                     if data.chat_history:
                         try:
@@ -528,7 +531,6 @@ async def solve(data: SolveRequest):
                         yield send_sse_event("error", {"message": f"AI Error: {str(ai_err)}"})
                         return
 
-                    # Safe JSON Parsing
                     try:
                         step_data = json_repair.loads(accumulated_text)
                     except Exception as e:
@@ -541,7 +543,6 @@ async def solve(data: SolveRequest):
                     to_do = step_data.get("to_do", [])
                     code_to_run = step_data.get("code", "")
 
-                    # Execution
                     yield send_sse_event("executing", {"step_number": step_number, "code": code_to_run})
                     yield send_sse_event("ping", {"msg": "executing_code"})
 
@@ -631,8 +632,6 @@ async def solve(data: SolveRequest):
         }
     )
 
-
-# -------------------- Chat History Endpoints --------------------
 
 @app.post("/api/sessions")
 async def get_user_sessions(data: ChatHistoryRequest):

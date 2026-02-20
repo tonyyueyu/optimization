@@ -11,9 +11,7 @@ from typing import Optional, Dict, List
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
 
-print("=== STATEFUL EXECUTOR v2 (Session Affinity) ===")
 
-# --- Guarded imports ---
 try:
     from kernel_manager import PersistentKernel
 except Exception as e:
@@ -27,7 +25,6 @@ except Exception as e:
     print(f"WARNING: google.cloud.storage not available: {e}")
     storage = None
 
-# --- Configuration ---
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 STORAGE_BASE = "session_data"
 STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024
@@ -40,11 +37,8 @@ kernels: Dict[str, "PersistentKernel"] = {}
 _storage_client = None
 
 
-# ──────────────────────────────────────────────
-# GCS Client
-# ──────────────────────────────────────────────
-
 def get_gcs_client():
+    """Initializes and returns a Google Cloud Storage client, or None if unavailable/local."""
     global _storage_client
     if _storage_client is None and storage is not None:
         try:
@@ -55,10 +49,6 @@ def get_gcs_client():
             return None
     return _storage_client
 
-
-# ──────────────────────────────────────────────
-# GCS Helpers
-# ──────────────────────────────────────────────
 
 def sync_uploads_from_gcs(session_id: str, local_upload_dir: str):
     """
@@ -146,10 +136,6 @@ def get_session_gcs_usage(session_id: str) -> int:
         return 0
 
 
-# ──────────────────────────────────────────────
-# Session & Kernel Helpers
-# ──────────────────────────────────────────────
-
 def get_session_paths(session_id: str):
     """Create and return local directories for a session."""
     base = os.path.join(STORAGE_BASE, session_id)
@@ -161,7 +147,7 @@ def get_session_paths(session_id: str):
 
 
 def get_kernel(session_id: str) -> "PersistentKernel":
-    """Get or create a persistent kernel for a session."""
+    """Get or create a persistent Jupyter kernel for a given session."""
     if PersistentKernel is None:
         raise HTTPException(
             status_code=503,
@@ -189,19 +175,11 @@ def get_local_session_usage(session_id: str) -> int:
     return total
 
 
-# ──────────────────────────────────────────────
-# API Models
-# ──────────────────────────────────────────────
-
 class CodeRequest(BaseModel):
     code: str
     session_id: str
     timeout: int = 120
 
-
-# ──────────────────────────────────────────────
-# Endpoints
-# ──────────────────────────────────────────────
 
 @app.get("/")
 async def health():
@@ -394,10 +372,6 @@ async def cleanup_session(session_id: str):
     print(f"[{session_id}] {message}")
     return {"status": "success", "message": message}
 
-
-# ──────────────────────────────────────────────
-# Background Janitor — cleans up abandoned sessions
-# ──────────────────────────────────────────────
 
 async def cleanup_old_sessions():
     """Periodically clean up sessions that haven't been touched in 24 hours."""
