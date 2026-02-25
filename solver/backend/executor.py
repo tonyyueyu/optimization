@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 print("=== STATEFUL EXECUTOR v2 (Fixed Uploads) ===")
 
-# --- Guarded imports ---
 try:
     from kernel_manager import PersistentKernel
 except Exception as e:
@@ -26,7 +25,6 @@ except Exception as e:
     print(f"WARNING: google.cloud.storage not available: {e}")
     storage = None
 
-# --- Configuration ---
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 STORAGE_BASE = "/tmp/session_data" # Use /tmp for writable space in Docker/Cloud Run
 STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024
@@ -40,6 +38,7 @@ _storage_client = None
 
 
 def get_gcs_client():
+    """Initializes and returns a Google Cloud Storage client, or None if unavailable/local."""
     global _storage_client
     if _storage_client is None and storage is not None:
         try:

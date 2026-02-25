@@ -4,6 +4,11 @@ import base64
 from jupyter_client import KernelManager
 
 class PersistentKernel:
+    """
+    Manages a persistent, headless Jupyter kernel.
+    Handles startup, continuous execution, matplotlib headless plotting,
+    and capturing execution outputs including code errors.
+    """
     def __init__(self, kernel_name='math_kernel'):
         """
         Initializes a persistent Jupyter kernel.
@@ -37,7 +42,8 @@ class PersistentKernel:
 
     def execute_code(self, code_string: str, is_init: bool = False):
         """
-        Executes code and captures all outputs (stdout, stderr, errors, plots).
+        Executes a block of python code and captures all outputs (stdout, stderr, runtime errors, and plots)
+        using the Jupyter kernel protocol over ZMQ channels.
         """
         if not code_string or not code_string.strip():
             return {"output": "", "error": "No code provided", "plots": [], "files": []}
@@ -65,30 +71,23 @@ class PersistentKernel:
                 if msg.get('parent_header', {}).get('msg_id') != msg_id:
                     continue
 
-                # 1. Capture standard output/error
                 if msg_type == 'stream':
                     if content['name'] == 'stdout':
                         output_text.append(content['text'])
                     elif content['name'] == 'stderr':
                         error_text.append(content['text'])
 
-                # 2. Capture runtime errors (Tracebacks)
                 elif msg_type == 'error':
-                    # Join traceback lines into a readable string
                     error_msg = "\n".join(content['traceback'])
                     error_text.append(error_msg)
 
-                # 3. Capture plots (Matplotlib/Seaborn)
                 elif msg_type in ['display_data', 'execute_result']:
                     data = content.get("data", {})
                     if "image/png" in data:
-                        # Return as base64 string
                         plots.append(data["image/png"])
                     elif "text/plain" in data and msg_type == 'execute_result':
-                        # This captures the value of the last line in a cell (like a Jupyter notebook)
                         output_text.append(data["text/plain"] + "\n")
 
-                # 4. Finish execution
                 if msg_type == 'status' and content['execution_state'] == 'idle':
                     break
 

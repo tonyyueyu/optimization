@@ -12,6 +12,7 @@ load_dotenv()
 # -------------------- Firebase Initialization --------------------
 
 def init_firebase():
+    """Initializes the Firebase Admin SDK using credentials from environment variables."""
     if firebase_admin._apps:
         return
 
@@ -35,7 +36,6 @@ def init_firebase():
 
 init_firebase()
 
-# -------------------- History Manager --------------------
 
 class HistoryManager:
     """
@@ -103,7 +103,6 @@ class HistoryManager:
     def clear_all_history(self, user_id: str):
         """Deletes everything for a user."""
         self._user_ref(user_id).delete()
-    # Add this method to the HistoryManager class in history_manager.py
 
     def truncate_session(self, user_id: str, session_id: str, index: int):
         """

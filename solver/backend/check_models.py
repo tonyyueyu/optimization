@@ -11,6 +11,10 @@ from google.genai import types
 API_KEY = os.getenv("GOOGLE_API_KEY")
 
 async def test():
+    """
+    Tests the Gemini API connection with streaming response.
+    Specifically patches HTTPX timeout settings for long-running calls.
+    """
     # Patch httpx first
     original_init = httpx.AsyncClient.__init__
     def patched_init(self, *args, **kwargs):
