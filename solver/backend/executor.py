@@ -33,7 +33,6 @@ os.makedirs(STORAGE_BASE, exist_ok=True)
 app = FastAPI()
 
 # Stateful: kernels persist across requests
-kernels: Dict[str, "PersistentKernel"] = {}
 _storage_client = None
 
 
