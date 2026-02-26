@@ -71,21 +71,29 @@ const formatReference = (data) => {
 };
 
 const extractCodeCells = (steps = []) => {
-    if (!steps || !Array.isArray(steps)) {
-        return [];
-    }
+    if (!steps || !Array.isArray(steps)) return [];
+
     return steps
         .map((step) => ({
-            stepNumber: step.number,
+            // Use step_id if number is missing (common when switching from streaming to history)
+            stepNumber: step.number || step.step_id || '?', 
             code: step.code || '',
             output: step.output || '',
             error: step.error || '',
-            language: step.language || 'python',
-            plots: step.plots || [],
-            files: step.files || []
+            language: 'python',
+            // Explicitly ensure plots and files are passed as arrays
+            plots: Array.isArray(step.plots) ? step.plots : [],
+            files: Array.isArray(step.files) ? step.files : []
         }))
-        .filter(cell => cell.code || cell.output || cell.error || (cell.plots && cell.plots.length > 0) || (cell.files && cell.files.length > 0))
-}
+        // Ensure we don't filter out a step just because it has no text output
+        .filter(cell => 
+            cell.code.trim() !== '' || 
+            cell.output.trim() !== '' || 
+            cell.error.trim() !== '' || 
+            cell.plots.length > 0 || 
+            cell.files.length > 0
+        );
+};
 
 const truncateText = (text, maxLength = 100) => {
     if (!text) return ''
@@ -184,7 +192,7 @@ const Sidebar = ({
  */
 const RunBlock = ({ cell }) => {
     const [isCodeVisible, setIsCodeVisible] = useState(false);
-
+    const isFatalError = cell.error && (cell.error.includes("Traceback") || cell.error.includes("Error:"));
     return (
         <section className="run-block">
             <header
@@ -208,18 +216,41 @@ const RunBlock = ({ cell }) => {
                     <pre className="run-block-code"><code>{cell.code}</code></pre>
                 )}
 
-                {(cell.output || cell.error) && (
-                    <div className={`run-block-out ${cell.error ? 'run-block-out-error' : ''}`}>
-                        {cell.error ? <strong>Error: </strong> : null}
-                        <SafeLatex>{cell.output || cell.error}</SafeLatex>
+                {/* Render Output */}
+                {cell.output && (
+                    <div className="run-block-out">
+                        <SafeLatex>{cell.output}</SafeLatex>
                     </div>
                 )}
 
-                {cell.plots && cell.plots.length > 0 && (
+                {/* Render Error/Warning */}
+                {cell.error && (
+                    <div className={`run-block-out ${isFatalError ? 'run-block-out-error' : 'run-block-out-warning'}`}>
+                        {isFatalError ? <strong>Exception: </strong> : <strong>Note: </strong>}
+                        <SafeLatex>{cell.error}</SafeLatex>
+                    </div>
+                )}
+
+                {Array.isArray(cell.plots) && cell.plots.length > 0 && (
                     <div className="run-block-plot">
-                        {cell.plots.map((plot, plotIdx) => (
-                            <img key={plotIdx} src={`data:image/png;base64,${plot}`} alt={`Plot ${plotIdx + 1}`} />
-                        ))}
+                        {cell.plots.map((plot, plotIdx) => {
+                            if (!plot) return null; // Skip empty plot data
+                            
+                            // Check if plot already has the data prefix
+                            const src = plot.startsWith('data:') 
+                                ? plot 
+                                : `data:image/png;base64,${plot}`;
+                                
+                            return (
+                                <img 
+                                    key={plotIdx} 
+                                    src={src} 
+                                    alt={`Plot ${plotIdx + 1}`} 
+                                    // Handle image load errors
+                                    onError={(e) => e.target.style.display = 'none'}
+                                />
+                            );
+                        })}
                     </div>
                 )}
 
@@ -893,7 +924,7 @@ function App() {
                 });
                 break;
             case 'step_complete':
-                const formattedStep = {
+                const finishedStep = {
                     number: event.data.step.step_id,
                     title: `Step ${event.data.step.step_id}`,
                     description: event.data.step.description || '',
@@ -905,28 +936,38 @@ function App() {
                     files: event.data.step.files || [],
                 };
                 setStreamingContent(prev => {
-                    if (!prev) {
-                        return {
-                            steps: [formattedStep],
-                            currentStep: null,
-                            currentTokens: '',
-                            status: 'waiting'
-                        };
-                    }
-                    const currentSteps = Array.isArray(prev.steps) ? prev.steps : [];
-                    const exists = currentSteps.some(s => s.number === formattedStep.number);
-                    if (exists) {
-                        return { ...prev, steps: currentSteps, currentStep: null, currentTokens: '', status: 'waiting' };
-                    }
+                // Handle initial null state
+                if (!prev) {
                     return {
-                        ...prev,
-                        steps: [...currentSteps, formattedStep],
+                        steps: [finishedStep],
                         currentStep: null,
                         currentTokens: '',
                         status: 'waiting'
                     };
-                });
-                break;
+                }
+
+                const currentSteps = Array.isArray(prev.steps) ? prev.steps : [];
+                const index = currentSteps.findIndex(s => s.number === finishedStep.number);
+
+                let newSteps;
+                if (index !== -1) {
+                    // REPLACE the placeholder with the data-rich step
+                    newSteps = [...currentSteps];
+                    newSteps[index] = finishedStep;
+                } else {
+                    // Append if it doesn't exist
+                    newSteps = [...currentSteps, finishedStep];
+                }
+
+                return {
+                    ...prev,
+                    steps: newSteps,
+                    currentStep: null,
+                    currentTokens: '',
+                    status: 'waiting'
+                };
+            });
+            break;
             case 'done':
                 setStreamingContent(null);
                 setIsLoading(false);
@@ -1010,22 +1051,47 @@ function App() {
         return renderUserMessage(message.content, messageIndex);
     }
 
-    const renderAssistantSteps = (message, { messageIndex = null } = {}) => (
+    const renderAssistantSteps = (message, { messageIndex = null } = {}) => {
+    // Check for "Trivial" case: 2 steps, and the 2nd is a summary (no code)
+    const isTrivial = 
+        message.steps.length === 2 && 
+        !message.steps[1].code && 
+        message.steps[1].number === 2;
+
+    if (isTrivial) {
+        // Only render the summary description from Step 2 as a plain message
+        return (
+            <div className="assistant-message">
+                <div className="plain-response">
+                    <SafeLatex>{message.steps[1].description}</SafeLatex>
+                </div>
+            </div>
+        );
+    }
+
+    // Standard rendering for complex problems
+    return (
         <div className="assistant-message">
             <div className="run-steps">
                 {message.steps.map((step, index) => {
                     const isFinalSummary = index === message.steps.length - 1 && !step.code;
-
-                    let stepToRender = step;
-                    if (message.steps.length === 1 && !isFinalSummary) {
-                        stepToRender = { ...step, title: 'Solution' };
+                    
+                    // Logic: If step_id == 2 and it's an empty final summary, 
+                    // and we didn't trigger 'isTrivial' above, we might still want to hide the badge
+                    if (step.number === 2 && isFinalSummary && message.steps.length === 2) {
+                        return (
+                            <div key={step.number} className="run-step-summary-only">
+                                <SafeLatex>{step.description}</SafeLatex>
+                            </div>
+                        );
                     }
 
-                    return renderStepCard(stepToRender, { isSummary: isFinalSummary });
+                    return renderStepCard(step, { isSummary: isFinalSummary });
                 })}
             </div>
         </div>
     );
+};
 
     const renderPlainText = (text = '') => (
         <div className="assistant-message">

@@ -1035,19 +1035,23 @@ body.resizing .app-split-resizer::after {
 }
 
 .run-block-plot {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  width: fit-content;
-}
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 12px 0;
+    width: 100%;
+} 
 
 .run-block-plot img {
-  display: block;
-  max-width: 100%;
-  border-radius: 4px;
-}
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 4px;
+    /* Force a background so transparent plots are visible */
+    background-color: #ffffff; 
+    border: 1px solid var(--border-color, #e0e0e0);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+} 
 
 /* Composer (input area) */
 .composer {
@@ -1712,4 +1716,15 @@ body.resizing .app-split-resizer::after {
   to {
     opacity: 1;
   }
+}
+.run-block-out-warning {
+    border-left-color: #f59e0b !important; /* Amber */
+    color: var(--text-secondary);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.run-block-out-error {
+    border-left-color: var(--error) !important;
+    color: var(--error);
+    background: var(--error-muted);
 }
