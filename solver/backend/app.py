@@ -123,8 +123,8 @@ ENVIRONMENT CONSTRAINTS:
 - Avoid 3-index variables when 2-index suffices.
 
 FILE ACCESS:
-- Read uploads: `"uploads/filename.csv"`
-- Save exports: `"exports/filename.csv"` (auto-uploaded to GCS)
+- **Read uploads:** Uploaded files are NOT available on the local filesystem. Instead, they are provided in the prompt as GCS Signed URLs. You MUST read them directly from these URLs using appropriate libraries (e.g., `pd.read_csv("URL")`, `requests.get("URL")`, etc.).
+- **Save exports:** Continue to save files to the `"exports/"` directory (e.g., `"exports/output.csv"`). These will be automatically captured and uploaded.
 - Plots captured automatically; save to exports/ only if user requests a file.
 
 FORMATTING:
@@ -221,6 +221,7 @@ class SolveRequest(BaseModel):
     user_id: Optional[str] = None
     session_id: Optional[str] = None
     chat_history: Optional[List[Dict[str, Any]]] = None
+    selected_files: Optional[List[str]] = None
 
 class ChatHistoryRequest(BaseModel):
     user_id: str
@@ -311,25 +312,160 @@ async def upload_proxy(
         file_content = await file.read()
 
         bucket = client.bucket(GCS_BUCKET_NAME)
-        prefix = f"uploads/{session_id}/"
+        effective_user_id = user_id or 'anonymous'
+        
+        if effective_user_id != 'anonymous':
+            prefix = f"{effective_user_id}/"
+            blob_path = f"{effective_user_id}/{file.filename}"
+        else:
+            prefix = f"{effective_user_id}/{session_id}/"
+            blob_path = f"{effective_user_id}/{session_id}/{file.filename}"
+
         current_usage = sum(
             b.size for b in bucket.list_blobs(prefix=prefix) if b.size
         )
         if current_usage + len(file_content) > STORAGE_LIMIT_BYTES:
-            raise HTTPException(status_code=413, detail="1.5GB session limit exceeded")
+            raise HTTPException(status_code=413, detail="1.5GB storage limit exceeded")
 
-        blob = bucket.blob(f"uploads/{session_id}/{file.filename}")
+        blob = bucket.blob(blob_path)
         blob.upload_from_string(file_content, content_type=file.content_type)
+
+        url = generate_signed_download_url(blob.name)
+        if not url:
+            url = blob.public_url
 
         return {
             "status": "success",
             "filename": file.filename,
-            "path": f"uploads/{file.filename}"
+            "url": url,
+            "path": url,
+            "id": blob_path
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/links/save")
+async def save_session_link(
+    user_id: str = Form(...),
+    session_id: str = Form(...),
+    name: str = Form(...),
+    url: str = Form(...)
+):
+    """Saves a link as a metadata file in GCS."""
+    try:
+        link_data = {"name": name, "url": url, "type": "link"}
+        client = get_storage_client()
+        if not client or not GCS_BUCKET_NAME:
+            raise HTTPException(status_code=503, detail="GCS not available")
+
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        effective_user_id = user_id or 'anonymous'
+        
+        if effective_user_id != 'anonymous':
+            blob_name = f"{effective_user_id}/{name}.link"
+        else:
+            blob_name = f"{effective_user_id}/{session_id}/{name}.link"
+            
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(json.dumps(link_data), content_type="application/json")
+
+        return {"status": "success", "filename": name, "storage": "gcs", "id": blob_name}
+    except Exception as e:
+        logger.error(f"Link save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/files/{session_id}")
+async def list_session_files(session_id: str, user_id: str = "anonymous"):
+    """Lists files and links uploaded for the given session."""
+    files = []
+    try:
+        client = get_storage_client()
+        if not client or not GCS_BUCKET_NAME:
+             return {"files": [], "status": "error", "message": "GCS not available"}
+
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        effective_user_id = user_id or 'anonymous'
+        
+        logger.info(f"📁 Listing files for user: {effective_user_id} (session: {session_id})")
+
+        if (effective_user_id and effective_user_id != 'anonymous') or session_id == 'all':
+            prefix = f"{effective_user_id}/"
+        else:
+            prefix = f"{effective_user_id}/{session_id}/"
+            
+        logger.info(f"🔍 GCS Prefix: {prefix}")
+        blobs = bucket.list_blobs(prefix=prefix)
+        
+        for blob in blobs:
+            rel_name = blob.name.replace(f"{effective_user_id}/", "", 1)
+            if not rel_name: continue
+            
+            if "/" in rel_name:
+                parts = rel_name.split("/")
+                sid = parts[0]
+                filename = "/".join(parts[1:])
+            else:
+                sid = "global"
+                filename = rel_name
+            
+            if filename.endswith(".link"):
+                try:
+                    content = blob.download_as_string()
+                    link_info = json.loads(content)
+                    files.append({
+                        "name": link_info.get("name", filename.replace(".link", "")),
+                        "url": link_info.get("url", "#"),
+                        "type": "link",
+                        "size": "Link",
+                        "id": blob.name,
+                        "session_id": sid,
+                        "gcs_path": blob.name,
+                        "updated": blob.updated.isoformat() if blob.updated else None,
+                    })
+                except: continue
+            else:
+                files.append({
+                    "name": filename,
+                    "size": f"{blob.size / 1024:.1f} KB" if blob.size < 1024 * 1024 else f"{blob.size / (1024 * 1024):.1f} MB",
+                    "id": blob.name,
+                    "updated": blob.updated.isoformat() if blob.updated else None,
+                    "type": "file",
+                    "session_id": sid,
+                    "gcs_path": blob.name,
+                    "url": generate_signed_download_url(blob.name) or blob.public_url
+                })
+        
+        files.sort(key=lambda x: x.get('updated', ''), reverse=True)
+        return {"files": files, "status": "success", "storage": "gcs"}
+    except Exception as e:
+        logger.error(f"Error listing files: {e}")
+        return {"files": [], "error": str(e)}
+
+@app.post("/api/files/delete")
+async def delete_file(
+    user_id: str = Form(...),
+    session_id: str = Form(...),
+    id: str = Form(...) # Use GCS path as ID
+):
+    """Manually delete a file or link from GCS."""
+    try:
+        client = get_storage_client()
+        if not client or not GCS_BUCKET_NAME:
+            raise HTTPException(status_code=503, detail="GCS not available")
+        
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(id)
+        if blob.exists():
+            blob.delete()
+            return {"status": "success", "message": f"Deleted GCS blob {id}"}
+        
+        return {"status": "error", "message": f"File {id} not found in GCS"}
+    except Exception as e:
+        logger.error(f"Delete file Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -556,7 +692,47 @@ async def solve(data: SolveRequest):
                         except Exception as e:
                             logger.error(f"Failed to load history for prompt: {e}")
 
-                    prompt = f"""{chat_context}GOAL: Solve this problem: "{user_query}"
+                    # List selected or session files from GCS to provide to AI
+                    session_files_context = ""
+                    try:
+                        sc = get_storage_client()
+                        if sc and GCS_BUCKET_NAME:
+                            bucket = sc.bucket(GCS_BUCKET_NAME)
+                            file_items = []
+
+                            if data.selected_files:
+                                for blob_name in data.selected_files:
+                                    blob = bucket.blob(blob_name)
+                                    if blob.exists():
+                                        name = os.path.basename(blob.name)
+                                        if name.endswith(".link"):
+                                            try:
+                                                link_info = json.loads(blob.download_as_string())
+                                                file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
+                                            except: pass
+                                        else:
+                                            url = generate_signed_download_url(blob.name) or blob.public_url
+                                            file_items.append(f"- [FILE] {name}: {url}")
+                            elif data.session_id:
+                                prefix = f"{data.user_id or 'anonymous'}/{data.session_id}/"
+                                blobs = bucket.list_blobs(prefix=prefix)
+                                for b in blobs:
+                                    name = os.path.basename(b.name)
+                                    if name.endswith(".link"):
+                                        try:
+                                            link_info = json.loads(b.download_as_string())
+                                            file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
+                                        except: pass
+                                    else:
+                                        url = generate_signed_download_url(b.name) or b.public_url
+                                        file_items.append(f"- [FILE] {name}: {url}")
+
+                            if file_items:
+                                session_files_context = "AVAILABLE CONTEXT (Files & Links):\n" + "\n".join(file_items) + "\n\n"
+                    except Exception as e:
+                        logger.error(f"Failed to list session files for prompt: {e}")
+
+                    prompt = f"""{chat_context}{session_files_context}GOAL: Solve this problem: "{user_query}"
 
                             REFERENCE EXAMPLES:
                             1. {ref1}

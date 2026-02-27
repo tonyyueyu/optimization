@@ -141,8 +141,8 @@ async def execute(request: CodeRequest):
 
     session_root, upload_dir, export_dir = get_session_paths(request.session_id)
 
-    # 1. Sync files from GCS (incase instance was restarted)
-    sync_uploads_from_gcs(request.session_id, upload_dir)
+    # 1. Sync files from GCS (Disabled: files now accessed via URLs in prompt)
+    # sync_uploads_from_gcs(request.session_id, upload_dir)
 
     # 2. Kernel Lifecycle
     if request.session_id not in kernels:
@@ -158,15 +158,11 @@ async def execute(request: CodeRequest):
     setup_code = f"""
 import os, sys, uuid
 os.chdir(r'{os.path.abspath(session_root)}')
-if r'{os.path.abspath(upload_dir)}' not in sys.path:
-    sys.path.append(r'{os.path.abspath(upload_dir)}')
 import matplotlib
 matplotlib.use('Agg') # Prevent attempt to open windows
 import matplotlib.pyplot as plt
 
 os.chdir(r'{os.path.abspath(session_root)}')
-if r'{os.path.abspath(upload_dir)}' not in sys.path:
-    sys.path.append(r'{os.path.abspath(upload_dir)}')
 
 # Override plt.show to save to our export directory
 def _custom_show_shim():

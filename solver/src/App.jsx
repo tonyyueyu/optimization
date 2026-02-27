@@ -12,8 +12,10 @@ import {
 } from '@clerk/clerk-react'
 
 
-const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
-// const API_BASE = "http://localhost:8000";
+import FileDisplayer from './components/FileDisplayer'
+
+// const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
+const API_BASE = "http://localhost:8000";
 
 
 const LATEX_DELIMITERS = [
@@ -76,7 +78,7 @@ const extractCodeCells = (steps = []) => {
     return steps
         .map((step) => ({
             // Use step_id if number is missing (common when switching from streaming to history)
-            stepNumber: step.number || step.step_id || '?', 
+            stepNumber: step.number || step.step_id || '?',
             code: step.code || '',
             output: step.output || '',
             error: step.error || '',
@@ -86,11 +88,11 @@ const extractCodeCells = (steps = []) => {
             files: Array.isArray(step.files) ? step.files : []
         }))
         // Ensure we don't filter out a step just because it has no text output
-        .filter(cell => 
-            cell.code.trim() !== '' || 
-            cell.output.trim() !== '' || 
-            cell.error.trim() !== '' || 
-            cell.plots.length > 0 || 
+        .filter(cell =>
+            cell.code.trim() !== '' ||
+            cell.output.trim() !== '' ||
+            cell.error.trim() !== '' ||
+            cell.plots.length > 0 ||
             cell.files.length > 0
         );
 };
@@ -121,6 +123,91 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
     );
 };
 
+const AddFileModal = ({
+    isOpen,
+    onClose,
+    subTab,
+    setSubTab,
+    onFileUpload,
+    onLinkUpload,
+    linkName,
+    setLinkName,
+    linkUrl,
+    setLinkUrl,
+    isUploading
+}) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content add-file-modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">Add Resource</div>
+
+                <div className="modal-tabs">
+                    <button
+                        className={`modal-tab ${subTab === 'upload' ? 'active' : ''}`}
+                        onClick={() => setSubTab('upload')}
+                    >
+                        Upload File
+                    </button>
+                    <button
+                        className={`modal-tab ${subTab === 'link' ? 'active' : ''}`}
+                        onClick={() => setSubTab('link')}
+                    >
+                        Add Link
+                    </button>
+                </div>
+
+                <div className="modal-body">
+                    {subTab === 'upload' ? (
+                        <div className="upload-section">
+                            <label className="upload-dropzone">
+                                <input
+                                    type="file"
+                                    style={{ display: 'none' }}
+                                    onChange={(e) => {
+                                        if (e.target.files?.[0]) onFileUpload(e.target.files[0]);
+                                        onClose();
+                                    }}
+                                />
+                                <div className="upload-icon">📁</div>
+                                <p>{isUploading ? 'Uploading...' : 'Click to select or drag and drop'}</p>
+                                <span>Images, CSV, Excel, PDFs, etc. (max 1.5GB)</span>
+                            </label>
+                        </div>
+                    ) : (
+                        <div className="link-form">
+                            <div className="form-group">
+                                <label>Name</label>
+                                <input
+                                    placeholder="e.g. Documentation"
+                                    value={linkName}
+                                    onChange={(e) => setLinkName(e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>URL</label>
+                                <input
+                                    placeholder="https://..."
+                                    value={linkUrl}
+                                    onChange={(e) => setLinkUrl(e.target.value)}
+                                />
+                            </div>
+                            <button
+                                className="btn-primary"
+                                onClick={onLinkUpload}
+                                disabled={!linkName || !linkUrl || isUploading}
+                            >
+                                {isUploading ? 'Saving...' : 'Save Link'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 /**
  * Sidebar component that lists chat sessions. 
  * Allows creating new threads and deleting existing ones.
@@ -132,55 +219,85 @@ const Sidebar = ({
     onCreateSession,
     onDeleteSession,
     isLoading,
-    isOpen
+    isOpen,
+    sidebarTab,
+    sessionFiles,
+    onAddFile,
+    onDeleteFile,
+    selectedFileIds,
+    toggleFileSelection
 }) => {
     if (!isOpen) return null;
     return (
-        <aside className="app-sidebar" style={{ display: isOpen ? 'flex' : 'none' }} aria-label="Threads">
-            <div className="sidebar-header">
-                <button
-                    type="button"
-                    className="sidebar-new-btn"
-                    onClick={onCreateSession}
-                    disabled={isLoading}
-                    style={{ opacity: isLoading ? 0.5 : 1, cursor: isLoading ? 'not-allowed' : 'pointer' }}
-                >
-                    <span className="sidebar-plus">+</span>
-                    <span>New thread</span>
-                </button>
+        <aside className="app-sidebar" style={{ display: isOpen ? 'flex' : 'none' }}>
+            <div className="sidebar-content">
+                {sidebarTab === 'threads' ? (
+                    <>
+                        <div className="sidebar-header">
+                            <button
+                                type="button"
+                                className="sidebar-new-btn"
+                                onClick={onCreateSession}
+                                disabled={isLoading}
+                            >
+                                <span className="sidebar-plus">+</span>
+                                <span>New thread</span>
+                            </button>
+                        </div>
+
+                        <div className="sidebar-list">
+                            {sessions.length === 0 ? (
+                                <div className="sidebar-empty">No threads yet.</div>
+                            ) : (
+                                sessions.map(session => (
+                                    <div
+                                        key={session.id}
+                                        className={`sidebar-item ${currentSessionId === session.id ? 'sidebar-item-active' : ''}`}
+                                        onClick={() => !isLoading && onSelectSession(session.id)}
+                                    >
+                                        <span className="sidebar-item-icon">◇</span>
+                                        <span className="sidebar-item-title">
+                                            {session.title || 'New thread'}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="sidebar-item-remove"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (!isLoading) onDeleteSession(session.id);
+                                            }}
+                                            disabled={isLoading}
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <FileDisplayer
+                        isOpen={true}
+                        files={sessionFiles}
+                        onAddFile={onAddFile}
+                        onDeleteFile={onDeleteFile}
+                        selectedFileIds={selectedFileIds}
+                        toggleFileSelection={toggleFileSelection}
+                    />
+                )}
             </div>
 
-            <div className="sidebar-list">
-                {sessions.map(session => (
-                    <div
-                        key={session.id}
-                        className={`sidebar-item ${currentSessionId === session.id ? 'sidebar-item-active' : ''}`}
-                        onClick={() => !isLoading && onSelectSession(session.id)}
-                        style={{
-                            opacity: isLoading && currentSessionId !== session.id ? 0.5 : 1,
-                            cursor: isLoading ? 'not-allowed' : 'pointer',
-                            pointerEvents: isLoading ? 'none' : 'auto'
-                        }}
-                    >
-                        <span className="sidebar-item-icon" aria-hidden>◇</span>
-                        <span className="sidebar-item-title">
-                            {session.title || 'New thread'}
-                        </span>
-                        <button
-                            type="button"
-                            className="sidebar-item-remove"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (!isLoading) onDeleteSession(session.id);
-                            }}
-                            disabled={isLoading}
-                            title="Remove thread"
-                            aria-label="Remove thread"
-                        >
-                            ×
-                        </button>
-                    </div>
-                ))}
+            <div className="sidebar-footer">
+                <SignedIn>
+                    <UserButton />
+                </SignedIn>
+                <SignedOut>
+                    <SignInButton mode="modal">
+                        <button className="btn-auth">Sign In</button>
+                    </SignInButton>
+                </SignedOut>
             </div>
         </aside>
     );
@@ -235,17 +352,17 @@ const RunBlock = ({ cell }) => {
                     <div className="run-block-plot">
                         {cell.plots.map((plot, plotIdx) => {
                             if (!plot) return null; // Skip empty plot data
-                            
+
                             // Check if plot already has the data prefix
-                            const src = plot.startsWith('data:') 
-                                ? plot 
+                            const src = plot.startsWith('data:')
+                                ? plot
                                 : `data:image/png;base64,${plot}`;
-                                
+
                             return (
-                                <img 
-                                    key={plotIdx} 
-                                    src={src} 
-                                    alt={`Plot ${plotIdx + 1}`} 
+                                <img
+                                    key={plotIdx}
+                                    src={src}
+                                    alt={`Plot ${plotIdx + 1}`}
                                     // Handle image load errors
                                     onError={(e) => e.target.style.display = 'none'}
                                 />
@@ -344,6 +461,7 @@ const ResizableSplitLayout = ({ left, right, widthPercent, setWidthPercent, left
  * authentication, active chats, streaming completions, active sessions, and layouts.
  */
 function App() {
+    const { isLoaded, isSignedIn, user } = useUser()
     const [messages, setMessages] = useState([])
     const [codePanelWidth, setCodePanelWidth] = useState(45);
     const [input, setInput] = useState('')
@@ -361,11 +479,57 @@ function App() {
     const [editingIndex, setEditingIndex] = useState(null);
     const [editValue, setEditValue] = useState("");
 
+    const [anonId] = useState(() => {
+        const saved = localStorage.getItem('solver_anon_id');
+        if (saved) return saved;
+        const newId = `anon_${Math.random().toString(36).substring(2, 11)}`;
+        localStorage.setItem('solver_anon_id', newId);
+        return newId;
+    });
+
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [isMobile, setIsMobile] = useState(false);
     const [activeMobileTab, setActiveMobileTab] = useState('chat');
+
+    const [sidebarTab, setSidebarTab] = useState('threads');
+    const [sessionFiles, setSessionFiles] = useState([]);
+    const [selectedFileIds, setSelectedFileIds] = useState(new Set());
+    const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);
+    const [linkName, setLinkName] = useState('');
+    const [linkUrl, setLinkUrl] = useState('');
+    const [modalSubTab, setModalSubTab] = useState('upload');
+
+    // Unified Selection Persistence (fixes race condition)
+    const hasInitializedSelection = useRef(false);
+    useEffect(() => {
+        if (!isLoaded) return;
+
+        const key = user?.id ? `selectedFiles_${user.id}` : `selectedFiles_${currentSessionId || anonId}`;
+
+        if (!hasInitializedSelection.current) {
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    setSelectedFileIds(new Set(parsed));
+                } catch (e) { console.error("Failed to parse selected files", e); }
+            }
+            hasInitializedSelection.current = true;
+        } else {
+            localStorage.setItem(key, JSON.stringify(Array.from(selectedFileIds)));
+        }
+    }, [selectedFileIds, isLoaded, user?.id, currentSessionId, anonId]);
+
+    useEffect(() => {
+        const saved = localStorage.getItem('lastSidebarTab');
+        if (saved) setSidebarTab(saved);
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('lastSidebarTab', sidebarTab);
+    }, [sidebarTab]);
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -379,7 +543,7 @@ function App() {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    const { isLoaded, isSignedIn, user } = useUser()
+
     const messagesEndRef = useRef(null)
     const abortControllerRef = useRef(null)
     const fileInputRef = useRef(null)
@@ -466,19 +630,21 @@ function App() {
                 let parsedContent = msg.content;
                 let type = 'text';
                 let steps = [];
+                let attachments = [];
 
-                if (msg.role === 'assistant') {
-                    try {
-                        if (msg.content && (msg.content.startsWith('{') || msg.content.startsWith('['))) {
-                            const parsed = JSON.parse(msg.content);
-                            if (parsed.type === 'steps' || parsed.steps) {
-                                type = 'steps';
-                                steps = parsed.steps || [];
-                                parsedContent = "";
-                            }
+                try {
+                    if (msg.content && (msg.content.startsWith('{') || msg.content.startsWith('['))) {
+                        const parsed = JSON.parse(msg.content);
+                        if (msg.role === 'assistant' && (parsed.type === 'steps' || parsed.steps)) {
+                            type = 'steps';
+                            steps = parsed.steps || [];
+                            parsedContent = "";
+                        } else if (msg.role === 'user' && parsed.attachments) {
+                            attachments = parsed.attachments;
+                            parsedContent = parsed.content;
                         }
-                    } catch (e) { }
-                }
+                    }
+                } catch (e) { }
 
                 if (type === 'steps') {
                     return {
@@ -503,7 +669,8 @@ function App() {
                 return {
                     role: msg.role,
                     type: 'text',
-                    content: parsedContent
+                    content: parsedContent,
+                    attachments: attachments
                 };
             });
 
@@ -601,7 +768,47 @@ function App() {
         }
     };
 
-    const handleFileUpload = async (file) => {
+    const fetchSessionFiles = useCallback(async (sessionId = currentSessionId) => {
+        if (!isLoaded) return;
+        const userId = user?.id || anonId;
+        // Always fetch the whole user library as requested
+        const targetSessionId = 'all';
+
+        console.log(`[Files] Fetching library for user: ${userId}`);
+
+        try {
+            const res = await fetch(`${API_BASE}/api/files/${targetSessionId}?user_id=${userId}`);
+            if (!res.ok) {
+                console.error(`Failed to fetch files: ${res.status}`);
+                return;
+            }
+            const data = await res.json();
+            if (data.status === 'success') {
+                setSessionFiles(data.files || []);
+            } else {
+                console.warn("Server returned error for files list:", data.message || data.error);
+            }
+        } catch (e) {
+            console.error("Error fetching session files", e);
+        }
+    }, [currentSessionId, user?.id, anonId, isLoaded]);
+
+    const prevSessionIdRef = useRef(currentSessionId);
+    useEffect(() => {
+        if (!isLoaded) return;
+
+        if (currentSessionId !== prevSessionIdRef.current) {
+            if (!isSignedIn) {
+                setSelectedFileIds(new Set());
+            }
+            prevSessionIdRef.current = currentSessionId;
+        }
+
+        fetchSessionFiles(currentSessionId);
+    }, [currentSessionId, fetchSessionFiles, isSignedIn, isLoaded]);
+
+
+    const handleFileUpload = useCallback(async (file) => {
         if (!file) return;
 
         setIsUploading(true);
@@ -614,7 +821,7 @@ function App() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        user_id: user?.id || 'anonymous',
+                        user_id: user?.id || anonId,
                         title: `Upload: ${file.name}`
                     })
                 });
@@ -631,8 +838,8 @@ function App() {
 
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('user_id', user?.id || 'anonymous');
-            formData.append('session_id', sessionId);
+            formData.append('user_id', user?.id || anonId);
+            formData.append('session_id', sessionId || 'global');
 
             const response = await fetch(`${API_BASE}/api/upload`, {
                 method: 'POST',
@@ -646,7 +853,21 @@ function App() {
 
             const data = await response.json();
             setUploadedFileName(file.name);
-            setFileContext(data.summary || `File '${file.name}' uploaded successfully.`);
+            setFileContext(data.summary || `File '${file.name}' uploaded successfully. Access URL: ${data.url}`);
+
+            const newFile = {
+                name: file.name,
+                size: fsize(file.size),
+                id: data.id || `${user?.id || anonId}/${sessionId}/${file.name}`,
+                type: 'file',
+                session_id: sessionId,
+                updated: new Date().toISOString(),
+                url: data.url
+            };
+            setSessionFiles(prev => [newFile, ...prev.filter(f => f.id !== newFile.id)]);
+
+            fetchSessionFiles(sessionId);
+            setSelectedFileIds(prev => new Set(prev).add(newFile.id));
 
         } catch (error) {
             console.error("Upload Error:", error);
@@ -658,7 +879,113 @@ function App() {
         } finally {
             setIsUploading(false);
         }
+    }, [currentSessionId, isSignedIn, user?.id, API_BASE, fetchSessions, fetchSessionFiles]);
+
+    // Helper for formatting size
+    function fsize(bytes) {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const dm = 1;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    const handleLinkUpload = useCallback(async () => {
+        if (!linkName || !linkUrl) return;
+        setIsUploading(true);
+        try {
+            let sessionId = currentSessionId;
+            if (!sessionId) {
+                const createRes = await fetch(`${API_BASE}/api/sessions/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: user?.id || anonId,
+                        title: linkName.substring(0, 30)
+                    })
+                });
+                if (createRes.ok) {
+                    const sData = await createRes.json();
+                    sessionId = sData.session_id;
+                    setCurrentSessionId(sessionId);
+                    if (isSignedIn) fetchSessions(user.id);
+                }
+            }
+
+            const formData = new FormData();
+            formData.append('user_id', user?.id || anonId);
+            formData.append('session_id', sessionId || 'global');
+            formData.append('name', linkName);
+            formData.append('url', linkUrl);
+
+            const response = await fetch(`${API_BASE}/api/links/save`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                // Optimistic update
+                const newLink = {
+                    name: linkName,
+                    url: linkUrl,
+                    type: 'link',
+                    id: data.id || `${user?.id || anonId}/${sessionId}/${linkName}.link`,
+                    session_id: sessionId,
+                    updated: new Date().toISOString()
+                };
+                setSessionFiles(prev => [newLink, ...prev.filter(f => f.id !== newLink.id)]);
+
+                setLinkName('');
+                setLinkUrl('');
+                setIsAddFileModalOpen(false);
+                fetchSessionFiles(sessionId);
+                if (newLink.id) {
+                    setSelectedFileIds(prev => new Set(prev).add(newLink.id));
+                }
+            }
+        } catch (error) {
+            console.error("Link Error:", error);
+        } finally {
+            setIsUploading(false);
+        }
+    }, [linkName, linkUrl, currentSessionId, isSignedIn, user?.id, API_BASE, fetchSessions, fetchSessionFiles]);
+
+    const handleDeleteFile = async (file) => {
+        try {
+            const formData = new FormData();
+            formData.append('user_id', user?.id || anonId);
+            formData.append('session_id', file.session_id || currentSessionId);
+            formData.append('id', file.id);
+
+            const res = await fetch(`${API_BASE}/api/files/delete`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (res.ok) {
+                fetchSessionFiles();
+                setSelectedFileIds(prev => {
+                    const next = new Set(prev);
+                    next.delete(file.id);
+                    return next;
+                });
+            }
+        } catch (e) {
+            console.error("Error deleting file", e);
+        }
     };
+
+    const toggleFileSelection = useCallback((fileId) => {
+        setSelectedFileIds(prev => {
+            const next = new Set(prev);
+            if (next.has(fileId)) next.delete(fileId);
+            else next.add(fileId);
+            return next;
+        });
+    }, []);
 
     const onDragOver = useCallback((e) => {
         e.preventDefault(); e.stopPropagation();
@@ -672,7 +999,7 @@ function App() {
         e.preventDefault(); e.stopPropagation();
         setIsDragging(false);
         if (e.dataTransfer.files?.[0]) handleFileUpload(e.dataTransfer.files[0]);
-    }, [user?.id]);
+    }, [handleFileUpload]);
 
     const parseSSE = (text) => {
         const events = []
@@ -754,21 +1081,33 @@ function App() {
             }
         }
 
-        const userMessage = { role: 'user', content: userMessageText };
+        const currentSelectedFiles = Array.from(selectedFileIds);
+        const attachments = currentSelectedFiles.map(fid => {
+            const f = sessionFiles.find(sf => sf.id === fid);
+            return f ? { name: f.name, type: f.type, id: f.id } : null;
+        }).filter(Boolean);
+
+        const userMessage = { role: 'user', content: userMessageText, attachments };
         const baseHistory = overrideHistory !== null ? overrideHistory : messages;
         setMessages([...baseHistory, userMessage]);
+
+        // Clear selection and uploaded state after capturing
+        setSelectedFileIds(new Set());
+        setUploadedFileName(null);
+        setFileContext(null);
         setInput('');
 
         let finalQuery = userMessageText;
-        if (fileContext) {
-            finalQuery = `CONTEXT FROM UPLOADED FILE:\n${fileContext}\n\nUSER QUERY: ${finalQuery}`;
-        }
-        setFileContext(null);
-        setUploadedFileName(null);
+        // ... (rest of the logic doesn't strictly need fileContext anymore if we use attachments uniformly, 
+        // but keeping it for backward compat if preferred. Actually user wants to see them in UI)
+
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
         if (!isAnonymous && targetSessionId) {
-            saveMessageToHistory(user.id, targetSessionId, 'user', finalQuery);
+            const historyContent = attachments.length > 0
+                ? JSON.stringify({ content: userMessageText, attachments })
+                : userMessageText;
+            saveMessageToHistory(user.id, targetSessionId, 'user', historyContent);
         }
 
         setIsLoading(true);
@@ -798,9 +1137,10 @@ function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     user_query: finalQuery,
-                    user_id: user?.id,
+                    user_id: user?.id || anonId,
                     session_id: targetSessionId,
-                    chat_history: formattedHistory
+                    chat_history: formattedHistory,
+                    selected_files: Array.from(selectedFileIds)
                 }),
                 signal: abortControllerRef.current.signal
             });
@@ -936,38 +1276,38 @@ function App() {
                     files: event.data.step.files || [],
                 };
                 setStreamingContent(prev => {
-                // Handle initial null state
-                if (!prev) {
+                    // Handle initial null state
+                    if (!prev) {
+                        return {
+                            steps: [finishedStep],
+                            currentStep: null,
+                            currentTokens: '',
+                            status: 'waiting'
+                        };
+                    }
+
+                    const currentSteps = Array.isArray(prev.steps) ? prev.steps : [];
+                    const index = currentSteps.findIndex(s => s.number === finishedStep.number);
+
+                    let newSteps;
+                    if (index !== -1) {
+                        // REPLACE the placeholder with the data-rich step
+                        newSteps = [...currentSteps];
+                        newSteps[index] = finishedStep;
+                    } else {
+                        // Append if it doesn't exist
+                        newSteps = [...currentSteps, finishedStep];
+                    }
+
                     return {
-                        steps: [finishedStep],
+                        ...prev,
+                        steps: newSteps,
                         currentStep: null,
                         currentTokens: '',
                         status: 'waiting'
                     };
-                }
-
-                const currentSteps = Array.isArray(prev.steps) ? prev.steps : [];
-                const index = currentSteps.findIndex(s => s.number === finishedStep.number);
-
-                let newSteps;
-                if (index !== -1) {
-                    // REPLACE the placeholder with the data-rich step
-                    newSteps = [...currentSteps];
-                    newSteps[index] = finishedStep;
-                } else {
-                    // Append if it doesn't exist
-                    newSteps = [...currentSteps, finishedStep];
-                }
-
-                return {
-                    ...prev,
-                    steps: newSteps,
-                    currentStep: null,
-                    currentTokens: '',
-                    status: 'waiting'
-                };
-            });
-            break;
+                });
+                break;
             case 'done':
                 setStreamingContent(null);
                 setIsLoading(false);
@@ -1048,50 +1388,50 @@ function App() {
         if (message.role === 'assistant') {
             return renderPlainText(message.content);
         }
-        return renderUserMessage(message.content, messageIndex);
+        return renderUserMessage(message, messageIndex);
     }
 
     const renderAssistantSteps = (message, { messageIndex = null } = {}) => {
-    // Check for "Trivial" case: 2 steps, and the 2nd is a summary (no code)
-    const isTrivial = 
-        message.steps.length === 2 && 
-        !message.steps[1].code && 
-        message.steps[1].number === 2;
+        // Check for "Trivial" case: 2 steps, and the 2nd is a summary (no code)
+        const isTrivial =
+            message.steps.length === 2 &&
+            !message.steps[1].code &&
+            message.steps[1].number === 2;
 
-    if (isTrivial) {
-        // Only render the summary description from Step 2 as a plain message
+        if (isTrivial) {
+            // Only render the summary description from Step 2 as a plain message
+            return (
+                <div className="assistant-message">
+                    <div className="plain-response">
+                        <SafeLatex>{message.steps[1].description}</SafeLatex>
+                    </div>
+                </div>
+            );
+        }
+
+        // Standard rendering for complex problems
         return (
             <div className="assistant-message">
-                <div className="plain-response">
-                    <SafeLatex>{message.steps[1].description}</SafeLatex>
+                <div className="run-steps">
+                    {message.steps.map((step, index) => {
+                        const isFinalSummary = index === message.steps.length - 1 && !step.code;
+
+                        // Logic: If step_id == 2 and it's an empty final summary, 
+                        // and we didn't trigger 'isTrivial' above, we might still want to hide the badge
+                        if (step.number === 2 && isFinalSummary && message.steps.length === 2) {
+                            return (
+                                <div key={step.number} className="run-step-summary-only">
+                                    <SafeLatex>{step.description}</SafeLatex>
+                                </div>
+                            );
+                        }
+
+                        return renderStepCard(step, { isSummary: isFinalSummary });
+                    })}
                 </div>
             </div>
         );
-    }
-
-    // Standard rendering for complex problems
-    return (
-        <div className="assistant-message">
-            <div className="run-steps">
-                {message.steps.map((step, index) => {
-                    const isFinalSummary = index === message.steps.length - 1 && !step.code;
-                    
-                    // Logic: If step_id == 2 and it's an empty final summary, 
-                    // and we didn't trigger 'isTrivial' above, we might still want to hide the badge
-                    if (step.number === 2 && isFinalSummary && message.steps.length === 2) {
-                        return (
-                            <div key={step.number} className="run-step-summary-only">
-                                <SafeLatex>{step.description}</SafeLatex>
-                            </div>
-                        );
-                    }
-
-                    return renderStepCard(step, { isSummary: isFinalSummary });
-                })}
-            </div>
-        </div>
-    );
-};
+    };
 
     const renderPlainText = (text = '') => (
         <div className="assistant-message">
@@ -1101,8 +1441,10 @@ function App() {
         </div>
     )
 
-    const renderUserMessage = (text = '', index) => {
+    const renderUserMessage = (message, index) => {
         const isEditing = editingIndex === index;
+        const msgObj = typeof message === 'string' ? { content: message, attachments: [] } : message;
+        const { content: text = '', attachments = [] } = msgObj;
 
         if (isEditing) {
             return (
@@ -1131,8 +1473,31 @@ function App() {
             );
         }
 
+
+        const getMiniIcon = (att) => {
+            if (att.type === 'link') return '🔗';
+            const name = att.name || '';
+            const ext = name.split('.').pop().toLowerCase();
+            switch (ext) {
+                case 'pdf': return '📕';
+                case 'py': return '🐍';
+                case 'json': return '📋';
+                default: return '📄';
+            }
+        };
+
         return (
             <div className="user-message-container">
+                {attachments.length > 0 && (
+                    <div className="user-message-attachments">
+                        {attachments.map((att, i) => (
+                            <div key={i} className="user-attachment-tag" title={att.name}>
+                                <span className="user-attachment-icon">{getMiniIcon(att)}</span>
+                                <span className="user-attachment-name">{att.name}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
                 <pre className="user-message-text">{text}</pre>
                 <button
                     className="edit-button"
@@ -1189,13 +1554,15 @@ function App() {
                 />
 
                 {!isMobile && (
-                    <div className="sidebar-toggle-strip" title={isSidebarOpen ? "Hide threads" : "Show threads"}>
+                    <div className="sidebar-toggle-strip">
                         <button
                             type="button"
-                            className="sidebar-toggle-btn"
-                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            aria-label={isSidebarOpen ? "Hide threads" : "Show threads"}
-                            aria-expanded={isSidebarOpen}
+                            className={`sidebar-toggle-btn ${sidebarTab === 'threads' ? 'active' : ''}`}
+                            onClick={() => {
+                                setSidebarTab('threads');
+                                setIsSidebarOpen(true);
+                            }}
+                            title="Threads"
                         >
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <line x1="3" y1="12" x2="21" y2="12" />
@@ -1207,10 +1574,28 @@ function App() {
 
                         <button
                             type="button"
+                            className={`sidebar-toggle-btn ${sidebarTab === 'files' ? 'active' : ''}`}
+                            onClick={() => {
+                                setSidebarTab('files');
+                                setIsSidebarOpen(true);
+                                fetchSessionFiles();
+                            }}
+                            title="Files"
+                            style={{ marginTop: '12px' }}
+                        >
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                                <polyline points="13 2 13 9 20 9"></polyline>
+                            </svg>
+                            <span className="sidebar-toggle-label">Files</span>
+                        </button>
+
+                        <button
+                            type="button"
                             className="sidebar-toggle-btn"
                             onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
                             title={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
-                            style={{ marginTop: '12px' }}
+                            style={{ marginTop: 'auto', marginBottom: '12px' }}
                         >
                             {theme === 'dark' ? (
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1245,6 +1630,26 @@ function App() {
                     onDeleteSession={handleDeleteSession}
                     isLoading={isLoading}
                     isOpen={isSidebarOpen}
+                    sidebarTab={sidebarTab}
+                    sessionFiles={sessionFiles}
+                    onAddFile={() => setIsAddFileModalOpen(true)}
+                    onDeleteFile={handleDeleteFile}
+                    selectedFileIds={selectedFileIds}
+                    toggleFileSelection={toggleFileSelection}
+                />
+
+                <AddFileModal
+                    isOpen={isAddFileModalOpen}
+                    onClose={() => setIsAddFileModalOpen(false)}
+                    subTab={modalSubTab}
+                    setSubTab={setModalSubTab}
+                    onFileUpload={handleFileUpload}
+                    onLinkUpload={handleLinkUpload}
+                    linkName={linkName}
+                    setLinkName={setLinkName}
+                    linkUrl={linkUrl}
+                    setLinkUrl={setLinkUrl}
+                    isUploading={isUploading}
                 />
 
                 {isMobile && isSidebarOpen && (
@@ -1319,10 +1724,25 @@ function App() {
                             </div>
 
                             <div className="composer">
-                                {uploadedFileName && (
-                                    <div className="composer-attachment">
-                                        <span className="composer-attachment-name">{uploadedFileName}</span>
-                                        <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
+                                {(selectedFileIds.size > 0 || uploadedFileName) && (
+                                    <div className="composer-attachments">
+                                        {Array.from(selectedFileIds).map(fid => {
+                                            const file = sessionFiles.find(f => f.id === fid);
+                                            if (!file) return null;
+                                            return (
+                                                <div key={fid} className="composer-attachment">
+                                                    <span className="composer-attachment-icon">{file.type === 'link' ? '🔗' : '📄'}</span>
+                                                    <span className="composer-attachment-name">{file.name}</span>
+                                                    <button type="button" className="composer-attachment-remove" onClick={() => toggleFileSelection(fid)} aria-label="Remove">×</button>
+                                                </div>
+                                            );
+                                        })}
+                                        {!Array.from(selectedFileIds).some(fid => sessionFiles.find(f => f.id === fid)?.name === uploadedFileName) && uploadedFileName && (
+                                            <div className="composer-attachment">
+                                                <span className="composer-attachment-name">{uploadedFileName}</span>
+                                                <button type="button" className="composer-attachment-remove" onClick={() => { setUploadedFileName(null); setFileContext(null); }} aria-label="Remove file">×</button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                                 <div className="composer-inner">
