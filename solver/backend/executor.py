@@ -6,11 +6,15 @@ import time
 import asyncio
 import traceback
 import uvicorn
+import logging
 from typing import Optional, Dict, List
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
 
-print("=== STATEFUL EXECUTOR v2.1 (Fixed NameError & Storage) ===")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("executor")
+
+logger.info("=== STATEFUL EXECUTOR v2.1 (Fixed NameError & Storage) ===")
 
 # --- Configuration ---
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
@@ -22,14 +26,14 @@ os.makedirs(STORAGE_BASE, exist_ok=True)
 try:
     from kernel_manager import PersistentKernel
 except Exception as e:
-    print(f"FATAL: Failed to import kernel_manager: {e}")
+    logger.error(f"FATAL: Failed to import kernel_manager: {e}")
     traceback.print_exc()
     PersistentKernel = None
 
 try:
     from google.cloud import storage
 except Exception as e:
-    print(f"WARNING: google.cloud.storage not available: {e}")
+    logger.warning(f"WARNING: google.cloud.storage not available: {e}")
     storage = None
 
 app = FastAPI()
@@ -48,9 +52,9 @@ def get_gcs_client():
     if _storage_client is None and storage is not None:
         try:
             _storage_client = storage.Client()
-            print("✅ GCS Storage Client initialized")
+            logger.info("✅ GCS Storage Client initialized")
         except Exception as e:
-            print(f"WARNING: Could not create storage client: {e}")
+            logger.warning(f"WARNING: Could not create storage client: {e}")
             return None
     return _storage_client
 
@@ -81,9 +85,9 @@ def sync_uploads_from_gcs(session_id: str, local_upload_dir: str):
             
             if not os.path.exists(local_path) or os.path.getsize(local_path) != blob.size:
                 blob.download_to_filename(local_path)
-                print(f"  ↓ Synced from GCS: {filename}")
+                logger.info(f"  ↓ Synced from GCS: {filename}")
     except Exception as e:
-        print(f"WARNING: Sync from GCS failed: {e}")
+        logger.warning(f"WARNING: Sync from GCS failed: {e}")
 
 # ──────────────────────────────────────────────
 # API Models
@@ -101,6 +105,7 @@ class CodeRequest(BaseModel):
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), session_id: str = Form(...)):
     """Saves file to LOCAL uploads folder AND GCS bucket."""
+    logger.info(f"📥 [/upload] Upload request received in executor: filename={file.filename}, session={session_id}")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -125,7 +130,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
             blob.upload_from_filename(local_path)
             gcs_status = "success"
         except Exception as e:
-            print(f"GCS Upload Error: {e}")
+            logger.error(f"GCS Upload Error: {e}")
             gcs_status = f"error: {e}"
 
     return {
@@ -138,7 +143,9 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
 async def execute(request: CodeRequest):
     # Ensure global kernels dict is accessible
     global kernels 
-
+    
+    logger.info(f"⚡ [/execute] Execution requested for session_id={request.session_id}, timeout={request.timeout}s")
+    
     session_root, upload_dir, export_dir = get_session_paths(request.session_id)
 
     # 1. Sync files from GCS (Disabled: files now accessed via URLs in prompt)
@@ -148,7 +155,7 @@ async def execute(request: CodeRequest):
     if request.session_id not in kernels:
         if PersistentKernel is None:
             raise HTTPException(status_code=500, detail="Kernel manager unavailable")
-        print(f"Creating new kernel for session: {request.session_id}")
+        logger.info(f"Creating new kernel for session: {request.session_id}")
         kernels[request.session_id] = PersistentKernel()
 
     kernel = kernels[request.session_id]

@@ -304,6 +304,7 @@ async def upload_proxy(
     session_id: str = Form(...)
 ):
     """Upload directly to GCS — no executor dependency."""
+    logger.info(f"📁 [/api/upload] Received file upload req: file={file.filename}, user_id={user_id}, session_id={session_id}")
     try:
         client = get_storage_client()
         if not client:
@@ -352,6 +353,7 @@ async def save_session_link(
     url: str = Form(...)
 ):
     """Saves a link as a metadata file in GCS."""
+    logger.info(f"🔗 [/api/links/save] Saving link: name={name}, url={url[:50]}..., user_id={user_id}, session_id={session_id}")
     try:
         link_data = {"name": name, "url": url, "type": "link"}
         client = get_storage_client()
@@ -360,7 +362,7 @@ async def save_session_link(
 
         bucket = client.bucket(GCS_BUCKET_NAME)
         effective_user_id = user_id or 'anonymous'
-        
+     
         blob_name = f"{effective_user_id}/{session_id}/{name}.link"
             
         blob = bucket.blob(blob_name)
@@ -374,6 +376,7 @@ async def save_session_link(
 @app.get("/api/files/{session_id}")
 async def list_session_files(session_id: str, user_id: str = "anonymous"):
     """Lists files and links uploaded for the given session."""
+    logger.info(f"📋 [/api/files] Listing session files: user={user_id}, session={session_id}")
     files = []
     try:
         client = get_storage_client()
@@ -442,6 +445,7 @@ async def delete_file(
     id: str = Form(...) # Use GCS path as ID
 ):
     """Manually delete a file or link from GCS."""
+    logger.info(f"🗑️ [/api/files/delete] Delete file requested: id={id}, session={session_id}, user={user_id}")
     try:
         client = get_storage_client()
         if not client or not GCS_BUCKET_NAME:
@@ -588,6 +592,7 @@ async def solve(data: SolveRequest):
     and streams back the execution updates and final results via SSE.
     """
     user_query = data.user_query.strip()
+    logger.info(f"🧠 [/api/solve] AI Solve Request started: session_id={data.session_id}, user_id={data.user_id}, query='{user_query}'")
     if not user_query:
         raise HTTPException(status_code=400, detail="User query is required")
 
@@ -639,7 +644,7 @@ async def solve(data: SolveRequest):
                 step_number = current_loop + 1
 
                 try:
-                    yield send_sse_event("step_start", {"step_number": step_number, "status": "generating"})
+                    yield send_sse_event("step_start", {"step_number": step_number, "status": "generating", "to_do": to_do})
 
                     chat_context = ""
                     if data.chat_history:
@@ -732,6 +737,7 @@ async def solve(data: SolveRequest):
                             Step history: {json.dumps(step_history)}
                             To-do list: {json.dumps(to_do)}
                             Last code output: {code_output}"""
+                    logger.info(f"📝 [Step {step_number}] Prompt to Gemini:\n{prompt}")
                     yield send_sse_event("ping", {"msg": "waiting_for_ai"})
 
                     accumulated_text = ""
@@ -748,6 +754,7 @@ async def solve(data: SolveRequest):
                         yield send_sse_event("error", {"message": f"AI Error: {str(ai_err)}"})
                         return
 
+                    logger.info(f"🤖 [Step {step_number}] Gemini Response:\n{accumulated_text}")
                     try:
                         step_data = json_repair.loads(accumulated_text)
                     except Exception as e:
@@ -760,7 +767,7 @@ async def solve(data: SolveRequest):
                     to_do = step_data.get("to_do", [])
                     code_to_run = step_data.get("code", "")
 
-                    yield send_sse_event("executing", {"step_number": step_number, "code": code_to_run})
+                    yield send_sse_event("executing", {"step_number": step_number, "code": code_to_run, "to_do": to_do})
                     yield send_sse_event("ping", {"msg": "executing_code"})
 
                     execution_result = {"output": "", "error": "", "plots": []}
@@ -792,6 +799,8 @@ async def solve(data: SolveRequest):
                                 "output": "",
                                 "error": f"Execution Connection Failed: {str(exe_err)}"
                             }
+                        
+                        logger.info(f"⚙️ [Step {step_number}] Execution Response:\n{json.dumps(execution_result, indent=2)}")
 
                     code_output = execution_result.get("output", "")
                     if execution_result.get("error"):
@@ -835,6 +844,25 @@ async def solve(data: SolveRequest):
                     return
 
             yield send_sse_event("done", {"total_steps": len(step_history), "steps": step_history})
+            
+            user_id = data.user_id or 'anonymous'
+            if user_id == 'anonymous' or user_id.startswith('anon_'):
+                logger.info(f"🧹 Auto-cleaning anonymous session: {data.session_id}")
+                try:
+                    if data.session_id:
+                        sc = get_storage_client()
+                        if sc and GCS_BUCKET_NAME:
+                            bucket = sc.bucket(GCS_BUCKET_NAME)
+                            prefix = f"{user_id}/"
+                            blobs = bucket.list_blobs(prefix=prefix)
+                            for b in blobs:
+                                b.delete()
+                        
+                        history_manager.delete_session('anonymous', data.session_id)
+                        async with httpx.AsyncClient() as client:
+                            await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+                except Exception as cleanup_err:
+                    logger.error(f"Failed to auto-clean anonymous session: {cleanup_err}")
 
         finally:
             await executor_client.aclose()
@@ -853,6 +881,7 @@ async def solve(data: SolveRequest):
 @app.post("/api/sessions")
 async def get_user_sessions(data: ChatHistoryRequest):
     user_id = data.user_id.strip()
+    logger.info(f"📅 [/api/sessions] Fetching sessions for user: {user_id}")
     if not user_id:
         raise HTTPException(status_code=400, detail="User ID is required")
     try:

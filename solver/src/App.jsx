@@ -724,6 +724,7 @@ function App() {
     }, [currentSessionId, isSignedIn, user?.id, fetchSessionMessages]);
 
     useEffect(() => {
+        console.log("Current Session ID loaded:", currentSessionId);
         setStreamingContent(null);
         setUploadedFileName(null);
         setFileContext(null);
@@ -892,6 +893,7 @@ function App() {
 
     const handleLinkUpload = useCallback(async () => {
         if (!linkName || !linkUrl) return;
+
         setIsUploading(true);
         try {
             let sessionId = currentSessionId;
@@ -1227,7 +1229,8 @@ function App() {
                         steps,
                         currentStep: event.data.step_number,
                         currentTokens: '',
-                        status: 'generating'
+                        status: 'generating',
+                        to_do: event.data.to_do || prev?.to_do || []
                     };
                 });
                 break;
@@ -1258,7 +1261,8 @@ function App() {
                     return {
                         ...prev,
                         steps,
-                        status: 'executing'
+                        status: 'executing',
+                        to_do: event.data.to_do || prev?.to_do || []
                     };
                 });
                 break;
@@ -1310,6 +1314,7 @@ function App() {
             case 'done':
                 setStreamingContent(null);
                 setIsLoading(false);
+                fetchSessionFiles();
                 break;
             case 'error':
                 setStreamingContent(null);
@@ -1351,8 +1356,8 @@ function App() {
                         <span className="status-dot" />
                         <span>
                             {streamingContent.status === 'retrieving' && 'Looking up context…'}
-                            {streamingContent.status === 'generating' && 'Generating steps…'}
-                            {streamingContent.status === 'executing' && 'Running code…'}
+                            {streamingContent.status === 'generating' && (streamingContent.to_do?.length > 0 ? streamingContent.to_do[0] : 'Generating steps…')}
+                            {streamingContent.status === 'executing' && (streamingContent.to_do?.length > 0 ? streamingContent.to_do[0] : 'Running code…')}
                             {streamingContent.status === 'waiting' && 'Processing…'}
                         </span>
                     </div>
