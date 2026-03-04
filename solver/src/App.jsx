@@ -148,13 +148,22 @@ const AddFileModal = ({
                         className={`modal-tab ${subTab === 'upload' ? 'active' : ''}`}
                         onClick={() => setSubTab('upload')}
                     >
-                        Upload File
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        Upload
                     </button>
                     <button
                         className={`modal-tab ${subTab === 'link' ? 'active' : ''}`}
                         onClick={() => setSubTab('link')}
                     >
-                        Add Link
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        </svg>
+                        Link
                     </button>
                 </div>
 
@@ -170,17 +179,23 @@ const AddFileModal = ({
                                         onClose();
                                     }}
                                 />
-                                <div className="upload-icon">📁</div>
-                                <p>{isUploading ? 'Uploading...' : 'Click to select or drag and drop'}</p>
-                                <span>Images, CSV, Excel, PDFs, etc. (max 1.5GB)</span>
+                                <div className="upload-icon">
+                                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                                        <path d="M12 12v9" />
+                                        <path d="m8 17 4-4 4 4" />
+                                    </svg>
+                                </div>
+                                <p>{isUploading ? 'Preparing upload…' : 'Select or drag & drop files'}</p>
+                                <span>CSV, Excel, Images, PDFs Up to 1.5GB</span>
                             </label>
                         </div>
                     ) : (
                         <div className="link-form">
                             <div className="form-group">
-                                <label>Name</label>
+                                <label>Resource Name</label>
                                 <input
-                                    placeholder="e.g. Documentation"
+                                    placeholder="e.g. Project Documentation"
                                     value={linkName}
                                     onChange={(e) => setLinkName(e.target.value)}
                                 />
@@ -188,7 +203,7 @@ const AddFileModal = ({
                             <div className="form-group">
                                 <label>URL</label>
                                 <input
-                                    placeholder="https://..."
+                                    placeholder="https://example.com/docs"
                                     value={linkUrl}
                                     onChange={(e) => setLinkUrl(e.target.value)}
                                 />
@@ -197,8 +212,9 @@ const AddFileModal = ({
                                 className="btn-primary"
                                 onClick={onLinkUpload}
                                 disabled={!linkName || !linkUrl || isUploading}
+                                style={{ marginTop: '8px' }}
                             >
-                                {isUploading ? 'Saving...' : 'Save Link'}
+                                {isUploading ? 'Saving…' : 'Add Link'}
                             </button>
                         </div>
                     )}
@@ -289,16 +305,7 @@ const Sidebar = ({
                 )}
             </div>
 
-            <div className="sidebar-footer">
-                <SignedIn>
-                    <UserButton />
-                </SignedIn>
-                <SignedOut>
-                    <SignInButton mode="modal">
-                        <button className="btn-auth">Sign In</button>
-                    </SignInButton>
-                </SignedOut>
-            </div>
+
         </aside>
     );
 };

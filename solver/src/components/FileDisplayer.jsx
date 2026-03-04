@@ -14,37 +14,44 @@ const FileDisplayer = ({
     if (!isOpen) return null;
 
     const getFileIcon = (file) => {
-        if (file.type === 'link') return '🔗';
+        if (file.type === 'link') return (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+        );
+
         const ext = file.name.split('.').pop().toLowerCase();
-        switch (ext) {
-            case 'pdf': return '📕';
-            case 'csv':
-            case 'xlsx':
-            case 'xls': return '📊';
-            case 'png':
-            case 'jpg':
-            case 'jpeg':
-            case 'gif': return '🖼️';
-            case 'py': return '🐍';
-            case 'json': return '📋';
-            case 'stl':
-            case 'step':
-            case 'stp': return '⚙️';
-            default: return '📄';
-        }
+        return (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                <polyline points="13 2 13 9 20 9" />
+            </svg>
+        );
     };
 
     return (
         <div className="file-displayer">
             <div className="file-displayer-header">
-                <span className="file-displayer-title">Project Files</span>
-                <button className="sidebar-plus" onClick={onAddFile} title="Add file or link">+</button>
+                <div className="file-displayer-top-row">
+                    <span className="file-displayer-title">External Files</span>
+                    <button className="add-file-icon-btn" onClick={onAddFile} title="Add resource">+</button>
+                </div>
             </div>
 
             <div className="file-displayer-list">
                 {files.length === 0 ? (
                     <div className="file-displayer-empty">
-                        No files uploaded yet.
+                        <div className="file-displayer-empty-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                                <polyline points="13 2 13 9 20 9" />
+                            </svg>
+                        </div>
+                        <p>No files uploaded yet.</p>
+                        <button className="btn-primary" onClick={onAddFile} style={{ marginTop: '8px', padding: '8px 16px', fontSize: '0.85rem' }}>
+                            Add Resource
+                        </button>
                     </div>
                 ) : (
                     files.map((file) => (
