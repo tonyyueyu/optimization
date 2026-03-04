@@ -14,10 +14,13 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("executor")
 
-logger.info("=== STATEFUL EXECUTOR v2.1 (Fixed NameError & Storage) ===")
+logger.info("=== STATEFUL EXECUTOR v2.2 (Fixed ADC & NameErrors) ===")
+
+isCloud = True
 
 # --- Configuration ---
-BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+raw_bucket_name = os.getenv("GCS_BUCKET_NAME")
+BUCKET_NAME = raw_bucket_name.strip('"\n\r ') if raw_bucket_name else None
 # Use /tmp/session_data for environments like Cloud Run where only /tmp is writable
 STORAGE_BASE = "/tmp/session_data" 
 os.makedirs(STORAGE_BASE, exist_ok=True)
@@ -47,12 +50,16 @@ _storage_client = None
 # Helpers
 # ──────────────────────────────────────────────
 
-def get_gcs_client():
-    global _storage_client
-    if _storage_client is None and storage is not None:
+def get_storage_client():
+    global _storage_client # Use storage_client for the backend file, _storage_client for the executor
+    if _storage_client is None:
         try:
-            _storage_client = storage.Client()
-            logger.info("✅ GCS Storage Client initialized")
+            # Explicitly load the JSON key if it is baked into the container
+            if os.path.exists("gcs-key.json"):
+                _storage_client = storage.Client.from_service_account_json("gcs-key.json")
+            else:
+                # Fallback just in case
+                _storage_client = storage.Client(project="hippomath") 
         except Exception as e:
             logger.warning(f"WARNING: Could not create storage client: {e}")
             return None
@@ -69,7 +76,7 @@ def get_session_paths(session_id: str):
 
 def sync_uploads_from_gcs(session_id: str, local_upload_dir: str):
     """Download files from GCS to local so the kernel can access them."""
-    client = get_gcs_client()
+    client = get_storage_client()
     if not client or not BUCKET_NAME:
         return
 
@@ -121,7 +128,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
         raise HTTPException(status_code=500, detail=f"Failed to save locally: {e}")
 
     # 2. Upload to GCS (Critical for persistence across instance restarts)
-    client = get_gcs_client()
+    client = get_storage_client()
     gcs_status = "skipped"
     if client and BUCKET_NAME:
         try:
@@ -221,7 +228,7 @@ plt.show = _custom_show_shim
         # 6. Collect results (files created by the code)
         # Assuming your code writes to 'exports/' relative to session_root
         exported_files = []
-        client = get_gcs_client()
+        client = get_storage_client()
         
         # Search BOTH session_root and export_dir for new images/files
         # But prioritize the exports folder
