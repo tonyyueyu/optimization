@@ -15,7 +15,7 @@ import {
 import FileDisplayer from './components/FileDisplayer'
 
 // const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://backend-service-dev-696616516071.us-west1.run.app";
 
 
 const LATEX_DELIMITERS = [
