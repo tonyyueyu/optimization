@@ -53,7 +53,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
 
-isCloud = False
+isCloud = True
 if isCloud:
     # EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
     EXECUTOR_HOST = "https://executor-service-test-696616516071.us-west1.run.app"
@@ -63,7 +63,8 @@ EXECUTOR_URL = f"{EXECUTOR_HOST}/execute"
 CHAT_MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "models/gemini-embedding-001"
 storage_client = None
-GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+raw_bucket_name = os.getenv("GCS_BUCKET_NAME")
+GCS_BUCKET_NAME = raw_bucket_name.strip('"\n\r ') if raw_bucket_name else None
 
 SOLVER_SYSTEM_PROMPT = """You are a Math Optimization & CAD Code Solver.
 
@@ -254,14 +255,19 @@ def send_sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 def get_storage_client():
-    global storage_client
+    global storage_client 
     if storage_client is None:
         try:
-            storage_client = storage.Client()
-            logger.info("✅ GCS Storage Client initialized")
+            # Explicitly load the JSON key since we are baking it into the container
+            if os.path.exists("gcs-key.json"):
+                storage_client = storage.Client.from_service_account_json("gcs-key.json")
+            elif os.path.exists("/app/gcs-key.json"): 
+                storage_client = storage.Client.from_service_account_json("/app/gcs-key.json")
+            else:
+                storage_client = storage.Client(project="hippomath") 
         except Exception as e:
-            logger.warning(f"⚠️ GCS Storage Client failed (Local Dev?): {e}")
-            return None
+            raise RuntimeError(f"GCS Initialization Failed: {str(e)}")
+            
     return storage_client
 
 def generate_signed_download_url(gcs_path: str):
@@ -276,7 +282,8 @@ def generate_signed_download_url(gcs_path: str):
         return blob.generate_signed_url(
             version="v4",
             expiration=timedelta(minutes=60),
-            method="GET"
+            method="GET",
+            service_account_email="696616516071-compute@developer.gserviceaccount.com"
         )
     except Exception as e:
         logger.error(f"Failed to sign URL: {e}")

@@ -4,7 +4,9 @@ FROM mambaorg/micromamba:latest
 ENV MAMBA_DOCKERFILE_ACTIVATE=1
 
 # Since you are running from the 'backend' directory, environment.yml is now in the root of the context
-COPY --chown=$MAMBA_USER:$MAMBA_USER backend/environment.yml /tmp/env.yml
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yml
+COPY gcs-key.json .
+COPY .env .
 
 RUN micromamba install -y -n base -f /tmp/env.yml && \
     micromamba clean --all --yes
