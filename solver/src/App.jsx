@@ -501,22 +501,25 @@ function App() {
     const [linkUrl, setLinkUrl] = useState('');
     const [modalSubTab, setModalSubTab] = useState('upload');
 
-    // Unified Selection Persistence (fixes race condition)
-    const hasInitializedSelection = useRef(false);
+    const sessionRef = useRef(currentSessionId);
     useEffect(() => {
         if (!isLoaded) return;
+        const key = `selectedFiles_${user?.id || anonId}_${currentSessionId || 'global'}`;
 
-        const key = user?.id ? `selectedFiles_${user.id}` : `selectedFiles_${currentSessionId || anonId}`;
 
-        if (!hasInitializedSelection.current) {
+        if (currentSessionId !== sessionRef.current) {
             const saved = localStorage.getItem(key);
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
                     setSelectedFileIds(new Set(parsed));
-                } catch (e) { console.error("Failed to parse selected files", e); }
+                } catch (e) {
+                    setSelectedFileIds(new Set());
+                }
+            } else {
+                setSelectedFileIds(new Set());
             }
-            hasInitializedSelection.current = true;
+            sessionRef.current = currentSessionId;
         } else {
             localStorage.setItem(key, JSON.stringify(Array.from(selectedFileIds)));
         }
@@ -771,10 +774,9 @@ function App() {
     const fetchSessionFiles = useCallback(async (sessionId = currentSessionId) => {
         if (!isLoaded) return;
         const userId = user?.id || anonId;
-        // Always fetch the whole user library as requested
-        const targetSessionId = 'all';
+        const targetSessionId = sessionId || 'global';
 
-        console.log(`[Files] Fetching library for user: ${userId}`);
+        console.log(`[Files] Fetching library for user: ${userId}, session: ${targetSessionId}`);
 
         try {
             const res = await fetch(`${API_BASE}/api/files/${targetSessionId}?user_id=${userId}`);
@@ -798,9 +800,6 @@ function App() {
         if (!isLoaded) return;
 
         if (currentSessionId !== prevSessionIdRef.current) {
-            if (!isSignedIn) {
-                setSelectedFileIds(new Set());
-            }
             prevSessionIdRef.current = currentSessionId;
         }
 
@@ -858,7 +857,7 @@ function App() {
             const newFile = {
                 name: file.name,
                 size: fsize(file.size),
-                id: data.id || `${user?.id || anonId}/${sessionId}/${file.name}`,
+                id: data.id || `${user?.id || anonId}/${sessionId || 'global'}/${file.name}`,
                 type: 'file',
                 session_id: sessionId,
                 updated: new Date().toISOString(),
@@ -932,7 +931,7 @@ function App() {
                     name: linkName,
                     url: linkUrl,
                     type: 'link',
-                    id: data.id || `${user?.id || anonId}/${sessionId}/${linkName}.link`,
+                    id: data.id || `${user?.id || anonId}/${sessionId || 'global'}/${linkName}.link`,
                     session_id: sessionId,
                     updated: new Date().toISOString()
                 };

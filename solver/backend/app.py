@@ -314,12 +314,8 @@ async def upload_proxy(
         bucket = client.bucket(GCS_BUCKET_NAME)
         effective_user_id = user_id or 'anonymous'
         
-        if effective_user_id != 'anonymous':
-            prefix = f"{effective_user_id}/"
-            blob_path = f"{effective_user_id}/{file.filename}"
-        else:
-            prefix = f"{effective_user_id}/{session_id}/"
-            blob_path = f"{effective_user_id}/{session_id}/{file.filename}"
+        prefix = f"{effective_user_id}/{session_id}/"
+        blob_path = f"{effective_user_id}/{session_id}/{file.filename}"
 
         current_usage = sum(
             b.size for b in bucket.list_blobs(prefix=prefix) if b.size
@@ -365,10 +361,7 @@ async def save_session_link(
         bucket = client.bucket(GCS_BUCKET_NAME)
         effective_user_id = user_id or 'anonymous'
         
-        if effective_user_id != 'anonymous':
-            blob_name = f"{effective_user_id}/{name}.link"
-        else:
-            blob_name = f"{effective_user_id}/{session_id}/{name}.link"
+        blob_name = f"{effective_user_id}/{session_id}/{name}.link"
             
         blob = bucket.blob(blob_name)
         blob.upload_from_string(json.dumps(link_data), content_type="application/json")
@@ -392,10 +385,7 @@ async def list_session_files(session_id: str, user_id: str = "anonymous"):
         
         logger.info(f"📁 Listing files for user: {effective_user_id} (session: {session_id})")
 
-        if (effective_user_id and effective_user_id != 'anonymous') or session_id == 'all':
-            prefix = f"{effective_user_id}/"
-        else:
-            prefix = f"{effective_user_id}/{session_id}/"
+        prefix = f"{effective_user_id}/{session_id}/"
             
         logger.info(f"🔍 GCS Prefix: {prefix}")
         blobs = bucket.list_blobs(prefix=prefix)
