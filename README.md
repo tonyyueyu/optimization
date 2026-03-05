@@ -53,7 +53,7 @@ The application is split into a frontend and two backend services:
 
 ### Environment Variables
 
-Create a `.env` file in the project's root directory:
+Create a `.env` file in the backend directory:
 
 ```env
 GOOGLE_API_KEY=your_gemini_api_key
