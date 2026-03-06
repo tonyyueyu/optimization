@@ -1074,6 +1074,64 @@ body.resizing .app-split-resizer::after {
   padding: 0;
 }
 
+.task-plan-container {
+  margin: 10px 0 20px;
+  padding: 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.task-plan-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.task-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  transition: opacity 0.3s ease;
+}
+
+.task-plan-item.task-done {
+  opacity: 0.6;
+}
+
+.task-plan-item.task-done .task-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.task-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.task-icon.done {
+  color: var(--success);
+}
+
+.task-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
 /* Legacy workspace header (if still used elsewhere) */
 .workspace-code-header {
   display: flex;

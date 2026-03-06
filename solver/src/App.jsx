@@ -15,8 +15,7 @@ import {
 import FileDisplayer from './components/FileDisplayer'
 
 // const API_BASE = "https://backend-service-696616516071.us-west1.run.app";
-const API_BASE = "https://backend-service-dev-696616516071.us-west1.run.app";
-
+const API_BASE = "http://localhost:8000";
 
 const LATEX_DELIMITERS = [
     { left: '$$', right: '$$', display: true },
@@ -102,7 +101,24 @@ const truncateText = (text, maxLength = 100) => {
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
 }
 
+const updateHistoricalToDos = (prevHist, currentToDo) => {
+    const hist = prevHist ? [...prevHist] : [];
+    if (!currentToDo || !Array.isArray(currentToDo)) return hist;
 
+    currentToDo.forEach(task => {
+        if (!hist.find(t => t.task === task)) {
+            hist.push({ task, done: false });
+        }
+    });
+
+    hist.forEach(item => {
+        if (!currentToDo.includes(item.task)) {
+            item.done = true;
+        }
+    });
+
+    return hist;
+};
 
 /**
  * Reusable modal for confirming destructive actions like session deletion.
@@ -508,6 +524,16 @@ function App() {
     const [linkUrl, setLinkUrl] = useState('');
     const [modalSubTab, setModalSubTab] = useState('upload');
 
+    useEffect(() => {
+        if (!isLoaded) return;
+        const bootId = user?.id || anonId;
+        fetch(`${API_BASE}/api/boot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: bootId })
+        }).catch(err => console.error("Boot call failed:", err));
+    }, [isLoaded, user?.id, anonId]);
+
     const sessionRef = useRef(currentSessionId);
     useEffect(() => {
         if (!isLoaded) return;
@@ -641,6 +667,7 @@ function App() {
                 let type = 'text';
                 let steps = [];
                 let attachments = [];
+                let to_do_list = [];
 
                 try {
                     if (msg.content && (msg.content.startsWith('{') || msg.content.startsWith('['))) {
@@ -648,6 +675,7 @@ function App() {
                         if (msg.role === 'assistant' && (parsed.type === 'steps' || parsed.steps)) {
                             type = 'steps';
                             steps = parsed.steps || [];
+                            to_do_list = parsed.to_do_list || [];
                             parsedContent = "";
                         } else if (msg.role === 'user' && parsed.attachments) {
                             attachments = parsed.attachments;
@@ -662,6 +690,7 @@ function App() {
                         type: 'steps',
                         title: 'Steps',
                         summary: msg.summary || '',
+                        to_do_list: to_do_list,
                         steps: steps.map((step, idx) => ({
                             number: step.step_id || idx + 1,
                             title: `Step ${step.step_id || idx + 1}`,
@@ -1123,7 +1152,9 @@ function App() {
             steps: [],
             currentStep: null,
             currentTokens: '',
-            status: 'retrieving'
+            status: 'retrieving',
+            to_do: [],
+            historical_to_dos: []
         });
         abortControllerRef.current = new AbortController();
 
@@ -1159,6 +1190,7 @@ function App() {
             const decoder = new TextDecoder();
             let buffer = '';
             let finalExecutionSteps = [];
+            let currentHistoricalToDos = [];
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -1169,6 +1201,9 @@ function App() {
                 if (lastEventEnd !== -1) buffer = buffer.slice(lastEventEnd + 2);
 
                 for (const event of events) {
+                    if (event.event === 'step_start' || event.event === 'executing') {
+                        currentHistoricalToDos = updateHistoricalToDos(currentHistoricalToDos, event.data.to_do);
+                    }
                     if (event.event === 'done') {
                         finalExecutionSteps = event.data.steps || [];
                     }
@@ -1180,7 +1215,8 @@ function App() {
                 if (!isAnonymous && targetSessionId) {
                     const payload = JSON.stringify({
                         type: 'steps',
-                        steps: finalExecutionSteps
+                        steps: finalExecutionSteps,
+                        to_do_list: currentHistoricalToDos
                     });
                     await saveMessageToHistory(user.id, targetSessionId, 'assistant', payload);
                     await fetchSessionMessages(user.id, targetSessionId);
@@ -1193,6 +1229,7 @@ function App() {
                         type: 'steps',
                         title: 'Steps',
                         summary: summary,
+                        to_do_list: currentHistoricalToDos,
                         steps: finalExecutionSteps.map((step, idx) => ({
                             number: step.step_id || idx + 1,
                             title: `Step ${step.step_id || idx + 1}`,
@@ -1231,13 +1268,15 @@ function App() {
             case 'step_start':
                 setStreamingContent(prev => {
                     const steps = Array.isArray(prev?.steps) ? prev.steps : [];
+                    const newToDo = event.data.to_do || prev?.to_do || [];
                     return {
                         ...prev,
                         steps,
                         currentStep: event.data.step_number,
                         currentTokens: '',
                         status: 'generating',
-                        to_do: event.data.to_do || prev?.to_do || []
+                        to_do: newToDo,
+                        historical_to_dos: updateHistoricalToDos(prev?.historical_to_dos, newToDo)
                     };
                 });
                 break;
@@ -1265,11 +1304,13 @@ function App() {
             case 'executing':
                 setStreamingContent(prev => {
                     const steps = Array.isArray(prev?.steps) ? prev.steps : [];
+                    const newToDo = event.data.to_do || prev?.to_do || [];
                     return {
                         ...prev,
                         steps,
                         status: 'executing',
-                        to_do: event.data.to_do || prev?.to_do || []
+                        to_do: newToDo,
+                        historical_to_dos: updateHistoricalToDos(prev?.historical_to_dos, newToDo)
                     };
                 });
                 break;
@@ -1363,11 +1404,30 @@ function App() {
                         <span className="status-dot" />
                         <span>
                             {streamingContent.status === 'retrieving' && 'Looking up context…'}
-                            {streamingContent.status === 'generating' && (streamingContent.to_do?.length > 0 ? streamingContent.to_do[0] : 'Generating steps…')}
-                            {streamingContent.status === 'executing' && (streamingContent.to_do?.length > 0 ? streamingContent.to_do[0] : 'Running code…')}
+                            {streamingContent.status === 'generating' && 'Generating steps…'}
+                            {streamingContent.status === 'executing' && 'Running code…'}
                             {streamingContent.status === 'waiting' && 'Processing…'}
                         </span>
                     </div>
+
+                    {streamingContent.historical_to_dos && streamingContent.historical_to_dos.length > 0 && (
+                        <div className="task-plan-container">
+                            <div className="task-plan-title">Plan</div>
+                            <div className="task-plan-list">
+                                {streamingContent.historical_to_dos.map((item, idx) => (
+                                    <div key={idx} className={`task-plan-item ${item.done ? 'task-done' : ''}`}>
+                                        {item.done ? (
+                                            <svg className="task-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        ) : (
+                                            <svg className="task-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>
+                                        )}
+                                        <span className="task-text">{item.task}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="run-steps" ref={streamingStepsRef} style={{ scrollBehavior: 'smooth' }}>
                         {(streamingContent.steps || []).map((step) => renderStepCard(step, { isActive: false }))}
                         {streamingContent.currentStep && (
@@ -1423,6 +1483,23 @@ function App() {
         // Standard rendering for complex problems
         return (
             <div className="assistant-message">
+                {message.to_do_list && message.to_do_list.length > 0 && (
+                    <div className="task-plan-container">
+                        <div className="task-plan-title">Plan</div>
+                        <div className="task-plan-list">
+                            {message.to_do_list.map((item, idx) => (
+                                <div key={idx} className={`task-plan-item ${item.done ? 'task-done' : ''}`}>
+                                    {item.done ? (
+                                        <svg className="task-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    ) : (
+                                        <svg className="task-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    )}
+                                    <span className="task-text">{item.task}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="run-steps">
                     {message.steps.map((step, index) => {
                         const isFinalSummary = index === message.steps.length - 1 && !step.code;

@@ -2,6 +2,7 @@ import os
 import json
 import httpx
 import asyncio
+import time
 import logging
 import traceback
 import json_repair
@@ -53,7 +54,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
 
-isCloud = True
+isCloud = False
 if isCloud:
     # EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
     #  EXECUTOR_HOST = "https://executor-service-test-696616516071.us-west1.run.app"
@@ -213,6 +214,67 @@ app.add_middleware(
 )
 
 
+class UserConnectionManager:
+    def __init__(self):
+        self.connections: Dict[str, Any] = {}
+        self.timeout_seconds = 30 * 60  # 30 minutes
+
+    async def get_client(self, connection_id: str) -> httpx.AsyncClient:
+        now = time.time()
+        if connection_id not in self.connections:
+            client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=60.0, read=600.0, write=60.0, pool=60.0))
+            task = asyncio.create_task(self._keep_alive_loop(connection_id, client))
+            self.connections[connection_id] = {
+                "client": client,
+                "last_active": now,
+                "keep_alive_task": task
+            }
+            logger.info(f"🆕 Created new executor connection for: {connection_id}")
+        else:
+            self.connections[connection_id]["last_active"] = now
+            logger.info(f"♻️ Reusing executor connection for: {connection_id}")
+            
+        return self.connections[connection_id]["client"]
+
+    async def _keep_alive_loop(self, connection_id: str, client: httpx.AsyncClient):
+        try:
+            while True:
+                await asyncio.sleep(60)
+                now = time.time()
+                conn_info = self.connections.get(connection_id)
+                if not conn_info:
+                    break
+                
+                if now - conn_info["last_active"] > self.timeout_seconds:
+                    logger.info(f"⏳ Connection {connection_id} inactive for 30 mins. Closing.")
+                    await self.close_connection(connection_id)
+                    break
+                
+                try:
+                    await client.get(f"{EXECUTOR_HOST}/ping", timeout=10.0)
+                    logger.debug(f"💓 Keep-alive sent to {connection_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Keep-alive ping failed for {connection_id}: {e}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Keep-alive loop error for {connection_id}: {e}")
+
+    async def close_connection(self, connection_id: str):
+        if connection_id in self.connections:
+            conn = self.connections.pop(connection_id)
+            if not conn["keep_alive_task"].done():
+                conn["keep_alive_task"].cancel()
+            
+            try:
+                await conn["client"].aclose()
+            except:
+                pass
+            logger.info(f"🔌 Closed connection map for: {connection_id}")
+
+connection_manager = UserConnectionManager()
+
+
 class RetrieveRequest(BaseModel):
     query: str
 
@@ -228,6 +290,9 @@ class SolveRequest(BaseModel):
 class ChatHistoryRequest(BaseModel):
     user_id: str
     session_id: Optional[str] = None
+
+class BootRequest(BaseModel):
+    user_id: str
 
 class SaveMessageRequest(BaseModel):
     user_id: str
@@ -584,8 +649,12 @@ def format_reference(data):
 async def modify_prompt(data: ModifyPromptRequest):
     try:
         history_manager.truncate_session(data.user_id, data.session_id, data.message_index)
-        async with httpx.AsyncClient() as client:
+        c_id = data.user_id if data.user_id and data.user_id != 'anonymous' else data.session_id
+        client = await connection_manager.get_client(c_id)
+        try:
             await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+        except Exception as e:
+            logger.warning(f"Executor cleanup failed: {e}")
         return {"success": True}
     except Exception as e:
         logger.error(f"Modify Prompt Error: {e}")
@@ -610,11 +679,9 @@ async def solve(data: SolveRequest):
 
         step_history = []
 
-        # Persistent HTTP client — keeps Cloud Run session affinity cookie
-        # so all steps within one solve hit the same executor instance.
-        executor_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(180.0, connect=30.0)
-        )
+        # Cloud Run session affinity kept alive via UserConnectionManager
+        c_id = data.user_id if data.user_id and data.user_id != 'anonymous' else data.session_id
+        executor_client = await connection_manager.get_client(c_id)
 
         try:
             config = types.GenerateContentConfig(
@@ -867,13 +934,15 @@ async def solve(data: SolveRequest):
                                 b.delete()
                         
                         history_manager.delete_session('anonymous', data.session_id)
-                        async with httpx.AsyncClient() as client:
-                            await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+                        try:
+                            await executor_client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+                        except Exception as e:
+                            logger.warning(f"Executor cleanup failed: {e}")
                 except Exception as cleanup_err:
                     logger.error(f"Failed to auto-clean anonymous session: {cleanup_err}")
 
         finally:
-            await executor_client.aclose()
+            pass # Client is managed by UserConnectionManager
 
     return StreamingResponse(
         stream_solution(),
@@ -945,8 +1014,12 @@ async def clear_chat_history(data: ChatHistoryRequest):
     try:
         if data.session_id:
             history_manager.delete_session(user_id, data.session_id)
-            async with httpx.AsyncClient() as client:
+            c_id = user_id if user_id and user_id != 'anonymous' else data.session_id
+            client = await connection_manager.get_client(c_id)
+            try:
                 await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+            except Exception as e:
+                logger.warning(f"Executor cleanup failed: {e}")
             message = f"Session {data.session_id} deleted."
         else:
             history_manager.clear_all_history(user_id)
@@ -979,10 +1052,25 @@ async def log_error(data: LogErrorRequest):
 async def close_session(data: ChatHistoryRequest):
     if data.session_id:
         try:
-            async with httpx.AsyncClient() as client:
-                await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
+            c_id = data.user_id if data.user_id and data.user_id != 'anonymous' else data.session_id
+            client = await connection_manager.get_client(c_id)
+            await client.delete(f"{EXECUTOR_HOST}/cleanup/{data.session_id}")
             return {"status": "success", "message": "Executor disk space reclaimed."}
         except Exception as e:
             logger.error(f"Silent cleanup failed: {e}")
             return {"status": "error", "message": str(e)}
     return {"status": "noop"}
+
+@app.post("/api/boot")
+async def boot_executor(data: BootRequest):
+    user_id = data.user_id.strip()
+    c_id = user_id if user_id and user_id != 'anonymous' else "anonymous"
+    logger.info(f"🚀 [/api/boot] Booting executor container for user: {c_id}")
+    try:
+        client = await connection_manager.get_client(c_id)
+        # Actively ping it right now so Cloud Run container wakes up
+        await client.get(f"{EXECUTOR_HOST}/ping", timeout=10.0)
+        return {"status": "success", "message": "Executor booted and warmed up."}
+    except Exception as e:
+        logger.error(f"Boot Error: {e}")
+        return {"status": "error", "message": str(e)}

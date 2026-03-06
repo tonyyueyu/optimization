@@ -16,7 +16,7 @@ logger = logging.getLogger("executor")
 
 logger.info("=== STATEFUL EXECUTOR v2.2 (Fixed ADC & NameErrors) ===")
 
-isCloud = True
+isCloud = False
 
 # --- Configuration ---
 raw_bucket_name = os.getenv("GCS_BUCKET_NAME")
@@ -275,6 +275,32 @@ plt.show = _custom_show_shim
     except Exception as e:
         traceback.print_exc()
         return {"status": "error", "error": str(e)}
+
+@app.get("/ping")
+async def ping():
+    return {"status": "alive"}
+
+@app.delete("/cleanup/{session_id}")
+async def cleanup_session(session_id: str):
+    global kernels
+    logger.info(f"🧹 [/cleanup/{session_id}] Cleanup requested.")
+    # Remove kernel
+    if session_id in kernels:
+        try:
+            kernels[session_id].cleanup()
+        except:
+            pass
+        del kernels[session_id]
+        
+    # Delete local files
+    try:
+        session_root = os.path.join(STORAGE_BASE, session_id)
+        if os.path.exists(session_root):
+            shutil.rmtree(session_root)
+    except Exception as e:
+        logger.error(f"Failed to delete session folder {session_root}: {e}")
+        
+    return {"status": "success", "message": f"Session {session_id} cleaned up locally."}
 
 @app.on_event("startup")
 async def startup_event():
