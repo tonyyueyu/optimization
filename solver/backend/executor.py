@@ -24,6 +24,8 @@ BUCKET_NAME = raw_bucket_name.strip('"\n\r ') if raw_bucket_name else None
 # Use /tmp/session_data for environments like Cloud Run where only /tmp is writable
 STORAGE_BASE = "/tmp/session_data" 
 os.makedirs(STORAGE_BASE, exist_ok=True)
+GCS_MOUNT_PATH = os.getenv("GCS_MOUNT_PATH", "/gcs")
+USE_FUSE = os.path.exists(GCS_MOUNT_PATH)
 
 # --- Guarded imports ---
 try:
@@ -128,17 +130,27 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
         raise HTTPException(status_code=500, detail=f"Failed to save locally: {e}")
 
     # 2. Upload to GCS (Critical for persistence across instance restarts)
-    client = get_storage_client()
     gcs_status = "skipped"
-    if client and BUCKET_NAME:
+    if USE_FUSE:
         try:
-            bucket = client.bucket(BUCKET_NAME)
-            blob = bucket.blob(f"uploads/{session_id}/{file.filename}")
-            blob.upload_from_filename(local_path)
-            gcs_status = "success"
+            fuse_path = os.path.join(GCS_MOUNT_PATH, f"uploads/{session_id}/{file.filename}")
+            os.makedirs(os.path.dirname(fuse_path), exist_ok=True)
+            shutil.copy2(local_path, fuse_path)
+            gcs_status = "success_fuse"
         except Exception as e:
-            logger.error(f"GCS Upload Error: {e}")
-            gcs_status = f"error: {e}"
+            logger.error(f"FUSE Upload Error: {e}")
+            gcs_status = f"fuse_error: {e}"
+    else:
+        client = get_storage_client()
+        if client and BUCKET_NAME:
+            try:
+                bucket = client.bucket(BUCKET_NAME)
+                blob = bucket.blob(f"uploads/{session_id}/{file.filename}")
+                blob.upload_from_filename(local_path)
+                gcs_status = "success"
+            except Exception as e:
+                logger.error(f"GCS Upload Error: {e}")
+                gcs_status = f"error: {e}"
 
     return {
         "status": "success", 
@@ -249,7 +261,26 @@ plt.show = _custom_show_shim
 
             gcs_path = f"outputs/{request.session_id}/{uuid.uuid4().hex[:6]}_{fname}"
             
-            if client and BUCKET_NAME:
+            if USE_FUSE:
+                try:
+                    fuse_path = os.path.join(GCS_MOUNT_PATH, gcs_path)
+                    os.makedirs(os.path.dirname(fuse_path), exist_ok=True)
+                    shutil.copy2(filepath, fuse_path)
+                    
+                    # Check if it's an image to treat it as a "plot"
+                    is_image = fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))
+                    file_info = {"name": fname, "gcs_path": gcs_path, "fuse_path": fuse_path}
+                    
+                    if is_image:
+                        import base64
+                        with open(filepath, "rb") as img_f:
+                            if "plots" not in result: result["plots"] = []
+                            result["plots"].append(base64.b64encode(img_f.read()).decode('utf-8'))
+                    exported_files.append(file_info)
+                except Exception as e:
+                    logger.error(f"FUSE Export Error: {e}")
+
+            elif client and BUCKET_NAME:
                 blob = client.bucket(BUCKET_NAME).blob(gcs_path)
                 blob.upload_from_filename(filepath)
                 
@@ -258,8 +289,6 @@ plt.show = _custom_show_shim
                 
                 file_info = {"name": fname, "gcs_path": gcs_path}
                 if is_image:
-                    # Optional: If your backend expects Base64 for plots, 
-                    # you might need to read the file and add it to result["plots"]
                     import base64
                     with open(filepath, "rb") as img_f:
                         if "plots" not in result: result["plots"] = []

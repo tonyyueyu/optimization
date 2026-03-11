@@ -14,7 +14,7 @@ services:
       - ./backend/.env
     volumes:
       # Mounts the key from your 'solver' folder into the container
-      - ./gcs-key.json:/app/gcs-key.json
+      - ./backend/gcs-key.json:/app/gcs-key.json
     environment:
       - PORT=8080
       - EXECUTOR_HOST=http://executor:8000
@@ -36,7 +36,7 @@ services:
       - ./backend/.env
     volumes:
       # Also mount the key here so the executor can upload generated files
-      - ./gcs-key.json:/app/gcs-key.json
+      - ./backend/gcs-key.json:/app/gcs-key.json
     environment:
       - PORT=8000
       # --- GCS ADDITIONS ---

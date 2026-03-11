@@ -18,8 +18,9 @@ import google.cloud.logging
 from google.cloud.logging.handlers import CloudLoggingHandler
 from google import genai
 from google.genai import types
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from google.cloud import storage
+from fastapi.responses import FileResponse
 
 
 _original_async_client_init = httpx.AsyncClient.__init__
@@ -67,6 +68,13 @@ EMBEDDING_MODEL_NAME = "models/gemini-embedding-001"
 storage_client = None
 raw_bucket_name = os.getenv("GCS_BUCKET_NAME")
 GCS_BUCKET_NAME = raw_bucket_name.strip('"\n\r ') if raw_bucket_name else None
+GCS_MOUNT_PATH = os.getenv("GCS_MOUNT_PATH", "/gcs")
+# Detect if GCS FUSE is mounted at the specified path
+USE_FUSE = os.path.exists(GCS_MOUNT_PATH)
+if USE_FUSE:
+    logger.info(f"GCS FUSE detected at {GCS_MOUNT_PATH}")
+else:
+    logger.info("GCS FUSE not detected, falling back to standard GCS client")
 
 SOLVER_SYSTEM_PROMPT = """You are a Math Optimization & CAD Code Solver.
 
@@ -126,7 +134,7 @@ ENVIRONMENT CONSTRAINTS:
 - Avoid 3-index variables when 2-index suffices.
 
 FILE ACCESS:
-- **Read uploads:** Uploaded files are NOT available on the local filesystem. Instead, they are provided in the prompt as GCS Signed URLs. You MUST read them directly from these URLs using appropriate libraries (e.g., `pd.read_csv("URL")`, `requests.get("URL")`, etc.).
+- **Read uploads:** Uploaded files are available on the local filesystem at `/gcs/{user_id}/{session_id}/{filename}`. You can read them directly using standard Python file operations (e.g., `pd.read_csv("/gcs/...")`).
 - **Save exports:** Continue to save files to the `"exports/"` directory (e.g., `"exports/output.csv"`). These will be automatically captured and uploaded.
 - Plots captured automatically; save to exports/ only if user requests a file.
 
@@ -338,6 +346,10 @@ def get_storage_client():
     return storage_client
 
 def generate_signed_download_url(gcs_path: str):
+    if USE_FUSE:
+        # GCS FUSE MODE: Serve files through internal proxy endpoint for better performance and reliability
+        return f"/api/files/raw/{gcs_path}"
+        
     if gcs_path == "local_test_mode" or not GCS_BUCKET_NAME:
         return "#local-test-no-gcs-link"
     client = get_storage_client()
@@ -357,12 +369,25 @@ def generate_signed_download_url(gcs_path: str):
         return None
 
 def get_user_storage_usage(user_id: str):
+    if USE_FUSE:
+        # GCS FUSE MODE: Direct filesystem check for storage quota
+        user_dir = os.path.join(GCS_MOUNT_PATH, user_id)
+        if not os.path.exists(user_dir):
+            return 0
+        total_size = 0
+        for dirpath, dirnames, filenames in os.walk(user_dir):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                total_size += os.path.getsize(fp)
+        return total_size
+
     client = get_storage_client()
     if not client or not GCS_BUCKET_NAME:
         return 0
     try:
         bucket = client.bucket(GCS_BUCKET_NAME)
-        blobs = bucket.list_blobs(prefix=f"user_data/{user_id}/")
+        # Re-check: upload_proxy uses {user_id}/{session_id}/
+        blobs = bucket.list_blobs(prefix=f"{user_id}/")
         total_size = sum(blob.size for blob in blobs if blob.size)
         return total_size
     except Exception as e:
@@ -379,17 +404,38 @@ async def upload_proxy(
     """Upload directly to GCS — no executor dependency."""
     logger.info(f"📁 [/api/upload] Received file upload req: file={file.filename}, user_id={user_id}, session_id={session_id}")
     try:
+        file_content = await file.read()
+        effective_user_id = user_id or 'anonymous'
+        blob_path = f"{effective_user_id}/{session_id}/{file.filename}"
+
+        if USE_FUSE:
+            # GCS FUSE UPLOAD: Write directly to the mounted bucket
+            full_path = os.path.join(GCS_MOUNT_PATH, blob_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            
+            # Check usage
+            current_usage = get_user_storage_usage(effective_user_id)
+            if current_usage + len(file_content) > STORAGE_LIMIT_BYTES:
+                 raise HTTPException(status_code=413, detail="1.5GB storage limit exceeded")
+
+            with open(full_path, "wb") as f:
+                f.write(file_content)
+            
+            url = generate_signed_download_url(blob_path)
+            return {
+                "status": "success",
+                "filename": file.filename,
+                "url": url,
+                "path": url,
+                "id": blob_path
+            }
+
         client = get_storage_client()
         if not client:
             raise HTTPException(status_code=503, detail="GCS not available")
 
-        file_content = await file.read()
-
         bucket = client.bucket(GCS_BUCKET_NAME)
-        effective_user_id = user_id or 'anonymous'
-        
         prefix = f"{effective_user_id}/{session_id}/"
-        blob_path = f"{effective_user_id}/{session_id}/{file.filename}"
 
         current_usage = sum(
             b.size for b in bucket.list_blobs(prefix=prefix) if b.size
@@ -429,15 +475,21 @@ async def save_session_link(
     logger.info(f"🔗 [/api/links/save] Saving link: name={name}, url={url[:50]}..., user_id={user_id}, session_id={session_id}")
     try:
         link_data = {"name": name, "url": url, "type": "link"}
+        effective_user_id = user_id or 'anonymous'
+        blob_name = f"{effective_user_id}/{session_id}/{name}.link"
+
+        if USE_FUSE:
+            full_path = os.path.join(GCS_MOUNT_PATH, blob_name)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "w") as f:
+                json.dump(link_data, f)
+            return {"status": "success", "filename": name, "storage": "fuse", "id": blob_name}
+
         client = get_storage_client()
         if not client or not GCS_BUCKET_NAME:
             raise HTTPException(status_code=503, detail="GCS not available")
 
         bucket = client.bucket(GCS_BUCKET_NAME)
-        effective_user_id = user_id or 'anonymous'
-     
-        blob_name = f"{effective_user_id}/{session_id}/{name}.link"
-            
         blob = bucket.blob(blob_name)
         blob.upload_from_string(json.dumps(link_data), content_type="application/json")
 
@@ -452,16 +504,57 @@ async def list_session_files(session_id: str, user_id: str = "anonymous"):
     logger.info(f"📋 [/api/files] Listing session files: user={user_id}, session={session_id}")
     files = []
     try:
+        effective_user_id = user_id or 'anonymous'
+        prefix = f"{effective_user_id}/{session_id}/"
+
+        if USE_FUSE:
+            # GCS FUSE LISTING: Efficiently scan the directory tree
+            session_dir = os.path.join(GCS_MOUNT_PATH, effective_user_id, session_id)
+            if os.path.exists(session_dir):
+                for entry in os.scandir(session_dir):
+                    if entry.is_file():
+                        filename = entry.name
+                        full_path = entry.path
+                        stats = entry.stat()
+                        updated = datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat()
+                        
+                        gcs_path = f"{effective_user_id}/{session_id}/{filename}"
+                        
+                        if filename.endswith(".link"):
+                            try:
+                                with open(full_path, "r") as f:
+                                    link_info = json.load(f)
+                                files.append({
+                                    "name": link_info.get("name", filename.replace(".link", "")),
+                                    "url": link_info.get("url", "#"),
+                                    "type": "link",
+                                    "size": "Link",
+                                    "id": gcs_path,
+                                    "session_id": session_id,
+                                    "gcs_path": gcs_path,
+                                    "updated": updated,
+                                })
+                            except: continue
+                        else:
+                            files.append({
+                                "name": filename,
+                                "size": f"{stats.st_size / 1024:.1f} KB" if stats.st_size < 1024 * 1024 else f"{stats.st_size / (1024 * 1024):.1f} MB",
+                                "id": gcs_path,
+                                "updated": updated,
+                                "type": "file",
+                                "session_id": session_id,
+                                "gcs_path": gcs_path,
+                                "url": generate_signed_download_url(gcs_path)
+                            })
+            files.sort(key=lambda x: x.get('updated', ''), reverse=True)
+            return {"files": files, "status": "success", "storage": "fuse"}
+
         client = get_storage_client()
         if not client or not GCS_BUCKET_NAME:
              return {"files": [], "status": "error", "message": "GCS not available"}
 
         bucket = client.bucket(GCS_BUCKET_NAME)
-        effective_user_id = user_id or 'anonymous'
-        
         logger.info(f"📁 Listing files for user: {effective_user_id} (session: {session_id})")
-
-        prefix = f"{effective_user_id}/{session_id}/"
             
         logger.info(f"🔍 GCS Prefix: {prefix}")
         blobs = bucket.list_blobs(prefix=prefix)
@@ -511,6 +604,37 @@ async def list_session_files(session_id: str, user_id: str = "anonymous"):
         logger.error(f"Error listing files: {e}")
         return {"files": [], "error": str(e)}
 
+@app.get("/api/files/raw/{path:path}")
+async def serve_file(path: str):
+    """Serves a file from the GCS FUSE mount or GCS directly."""
+    if USE_FUSE:
+        full_path = os.path.join(GCS_MOUNT_PATH, path)
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            return FileResponse(full_path)
+        raise HTTPException(status_code=404, detail="File not found via FUSE")
+    
+    # Fallback to GCS client if FUSE is not available
+    client = get_storage_client()
+    if not client or not GCS_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="GCS not available")
+    
+    try:
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(path)
+        if not blob.exists():
+            raise HTTPException(status_code=404, detail="File not found in GCS")
+        
+        # We could stream it, but for simplicity let's use temporary file if needed or just redirect to signed URL
+        # For a "raw" endpoint, streaming is better
+        def stream_blob():
+            with blob.open("rb") as f:
+                yield from f
+
+        return StreamingResponse(blob.open("rb"), media_type=blob.content_type)
+    except Exception as e:
+        logger.error(f"Error serving file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/files/delete")
 async def delete_file(
     user_id: str = Form(...),
@@ -520,6 +644,13 @@ async def delete_file(
     """Manually delete a file or link from GCS."""
     logger.info(f"🗑️ [/api/files/delete] Delete file requested: id={id}, session={session_id}, user={user_id}")
     try:
+        if USE_FUSE:
+            full_path = os.path.join(GCS_MOUNT_PATH, id)
+            if os.path.exists(full_path):
+                os.remove(full_path)
+                return {"status": "success", "message": f"Deleted GCS file {id} via FUSE"}
+            return {"status": "error", "message": f"File {id} not found via FUSE"}
+
         client = get_storage_client()
         if not client or not GCS_BUCKET_NAME:
             raise HTTPException(status_code=503, detail="GCS not available")
@@ -765,40 +896,70 @@ async def solve(data: SolveRequest):
                     # List selected or session files from GCS to provide to AI
                     session_files_context = ""
                     try:
-                        sc = get_storage_client()
-                        if sc and GCS_BUCKET_NAME:
-                            bucket = sc.bucket(GCS_BUCKET_NAME)
-                            file_items = []
-
+                        file_items = []
+                        if USE_FUSE:
+                            effective_user_id = data.user_id or 'anonymous'
                             if data.selected_files:
-                                for blob_name in data.selected_files:
-                                    blob = bucket.blob(blob_name)
-                                    if blob.exists():
-                                        name = os.path.basename(blob.name)
+                                for gcs_path in data.selected_files:
+                                    full_path = os.path.join(GCS_MOUNT_PATH, gcs_path)
+                                    if os.path.exists(full_path):
+                                        name = os.path.basename(full_path)
                                         if name.endswith(".link"):
                                             try:
-                                                link_info = json.loads(blob.download_as_string())
+                                                with open(full_path, "r") as f:
+                                                    link_info = json.load(f)
                                                 file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
                                             except: pass
                                         else:
-                                            url = generate_signed_download_url(blob.name) or blob.public_url
-                                            file_items.append(f"- [FILE] {name}: {url}")
+                                            file_items.append(f"- [FILE] {name}: /gcs/{gcs_path}")
                             elif data.session_id:
-                                prefix = f"{data.user_id or 'anonymous'}/{data.session_id}/"
-                                blobs = bucket.list_blobs(prefix=prefix)
-                                for b in blobs:
-                                    name = os.path.basename(b.name)
-                                    if name.endswith(".link"):
-                                        try:
-                                            link_info = json.loads(b.download_as_string())
-                                            file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
-                                        except: pass
-                                    else:
-                                        url = generate_signed_download_url(b.name) or b.public_url
-                                        file_items.append(f"- [FILE] {name}: {url}")
+                                session_dir = os.path.join(GCS_MOUNT_PATH, effective_user_id, data.session_id)
+                                if os.path.exists(session_dir):
+                                    for entry in os.scandir(session_dir):
+                                        if entry.is_file():
+                                            name = entry.name
+                                            if name.endswith(".link"):
+                                                try:
+                                                    with open(entry.path, "r") as f:
+                                                        link_info = json.load(f)
+                                                    file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
+                                                except: pass
+                                            else:
+                                                file_items.append(f"- [FILE] {name}: /gcs/{effective_user_id}/{data.session_id}/{name}")
+                        else:
+                            sc = get_storage_client()
+                            if sc and GCS_BUCKET_NAME:
+                                bucket = sc.bucket(GCS_BUCKET_NAME)
 
-                            if file_items:
-                                session_files_context = "AVAILABLE CONTEXT (Files & Links):\n" + "\n".join(file_items) + "\n\n"
+                                if data.selected_files:
+                                    for blob_name in data.selected_files:
+                                        blob = bucket.blob(blob_name)
+                                        if blob.exists():
+                                            name = os.path.basename(blob.name)
+                                            if name.endswith(".link"):
+                                                try:
+                                                    link_info = json.loads(blob.download_as_string())
+                                                    file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
+                                                except: pass
+                                            else:
+                                                url = generate_signed_download_url(blob.name) or blob.public_url
+                                                file_items.append(f"- [FILE] {name}: {url}")
+                                elif data.session_id:
+                                    prefix = f"{data.user_id or 'anonymous'}/{data.session_id}/"
+                                    blobs = bucket.list_blobs(prefix=prefix)
+                                    for b in blobs:
+                                        name = os.path.basename(b.name)
+                                        if name.endswith(".link"):
+                                            try:
+                                                link_info = json.loads(b.download_as_string())
+                                                file_items.append(f"- [LINK] {link_info.get('name')}: {link_info.get('url')}")
+                                            except: pass
+                                        else:
+                                            url = generate_signed_download_url(b.name) or b.public_url
+                                            file_items.append(f"- [FILE] {name}: {url}")
+
+                        if file_items:
+                            session_files_context = "AVAILABLE CONTEXT (Files & Links):\n" + "\n".join(file_items) + "\n\n"
                     except Exception as e:
                         logger.error(f"Failed to list session files for prompt: {e}")
 
