@@ -357,10 +357,16 @@ const RunBlock = ({ cell }) => {
                 )}
 
                 {/* Render Output */}
-                {cell.output && (
+                {cell.output ? (
                     <div className="run-block-out">
                         <SafeLatex>{cell.output}</SafeLatex>
                     </div>
+                ) : (
+                    !cell.error && cell.plots?.length === 0 && cell.files?.length === 0 && (
+                        <div className="run-block-out" style={{ color: 'var(--text-secondary)', fontStyle: 'italic', padding: '12px' }}>
+                            Step executed successfully (no output).
+                        </div>
+                    )
                 )}
 
                 {/* Render Error/Warning */}
