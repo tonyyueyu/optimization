@@ -1770,7 +1770,7 @@ function App() {
                                 responseCount++;
                                 codeGroups.push({
                                     id: `msg-${idx}`,
-                                    title: msg.summary ? truncateText(msg.summary, 60) : `Response ${responseCount}`,
+                                    title: `Response ${responseCount}`,
                                     cells
                                 });
                             }
@@ -1782,7 +1782,7 @@ function App() {
                         if (cells.length > 0) {
                             codeGroups.push({
                                 id: 'streaming',
-                                title: 'Current Generation',
+                                title: `Response ${responseCount + 1}`,
                                 cells
                             });
                         }
