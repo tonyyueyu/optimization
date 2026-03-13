@@ -1,13 +1,13 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const BACKEND_URL = "https://backend-service-696616516071.us-west1.run.app";
+    const BACKEND_URL = "https://backend-service-dev-696616516071.us-west1.run.app";
 
     if (url.pathname.startsWith('/api/')) {
       const newUrl = new URL(url.pathname + url.search, BACKEND_URL);
-      
+
       const newRequest = new Request(newUrl, request);
-      
+
       return fetch(newRequest);
     }
 

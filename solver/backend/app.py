@@ -55,10 +55,10 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 STORAGE_LIMIT_BYTES = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
 
-isCloud = False
+isCloud = True
 if isCloud:
     # EXECUTOR_HOST = "https://executor-service-696616516071.us-west1.run.app"
-    EXECUTOR_HOST = "https://executor-service-test-696616516071.us-west1.run.app"
+    EXECUTOR_HOST = "https://executor-service-dev-696616516071.us-west1.run.app"
 
 else:
     EXECUTOR_HOST = "http://executor:8000"
