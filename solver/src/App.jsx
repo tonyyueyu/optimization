@@ -400,7 +400,7 @@ const RunBlock = ({ cell }) => {
                     </div>
                 )}
 
-                {cell.files && cell.files.length > 0 && (
+                {/* {cell.files && cell.files.length > 0 && (
                     <div className="run-block-files">
                         {cell.files
                             .filter(file => !/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(file.name))
@@ -425,7 +425,7 @@ const RunBlock = ({ cell }) => {
                                 </button>
                             ))}
                     </div>
-                )}
+                )} */}
             </div>
         </section>
     );

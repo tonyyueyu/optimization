@@ -56,8 +56,13 @@ def get_storage_client():
     global _storage_client # Use storage_client for the backend file, _storage_client for the executor
     if _storage_client is None:
         try:
-            # Explicitly load the JSON key if it is baked into the container
-            if os.path.exists("gcs-key.json"):
+            # Load the JSON key from the environment
+            import json
+            gcs_key = os.environ.get("GCS_KEY_JSON")
+            if gcs_key:
+                creds = json.loads(gcs_key)
+                _storage_client = storage.Client.from_service_account_info(creds)
+            elif os.path.exists("gcs-key.json"):
                 _storage_client = storage.Client.from_service_account_json("gcs-key.json")
             else:
                 # Fallback just in case

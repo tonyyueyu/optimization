@@ -132,12 +132,17 @@ ENVIRONMENT CONSTRAINTS:
 - **Data loading:** Inspect first 5-10 rows, use `usecols` to load only needed columns. Prefer Polars; downcast to float32 if using pandas. For files >50MB, use chunked reads.
 - Prefer CSV over Excel. If Excel is required, limit `nrows=50000`.
 - Avoid 3-index variables when 2-index suffices.
-
+""" + ("""
 FILE ACCESS:
 - **Read uploads:** Uploaded files are available on the local filesystem at `/gcs/{user_id}/{session_id}/{filename}`. You can read them directly using standard Python file operations (e.g., `pd.read_csv("/gcs/...")`).
 - **Save exports:** Continue to save files to the `"exports/"` directory (e.g., `"exports/output.csv"`). These will be automatically captured and uploaded.
 - Plots captured automatically; save to exports/ only if user requests a file.
-
+""" if USE_FUSE else """
+FILE ACCESS:
+- **Read uploads:** Uploaded files are NOT available on the local filesystem. Instead, they are provided in the prompt as GCS Signed URLs. You MUST read them directly from these URLs using appropriate libraries (e.g., `pd.read_csv("URL")`, `requests.get("URL")`, etc.).
+- **Save exports:** Continue to save files to the `"exports/"` directory (e.g., `"exports/output.csv"`). These will be automatically captured and uploaded.
+- Plots captured automatically; save to exports/ only if user requests a file.
+""") + """
 FORMATTING:
 - Use LaTeX notation (e.g., `$x_1 = 5$`, `$\\sum_{{i}} c_i x_i$`) in ALL step descriptions and the final summary whenever presenting mathematical expressions, variable names, or numeric results.
 
@@ -158,7 +163,7 @@ Your FIRST step (step_id: 1) MUST be "Problem Analysis & Feasibility Check":
 - Identify which library/solver applies using the Decision Tree below
 - Perform napkin math to sanity-check feasibility (bounds, variable counts, expected magnitude of objective)
 - Do NOT write solution code in this step — analysis only
-- Set code to "" or a simple data-inspection snippet at most
+- Code must NOT be empty. Write at least one line of code (e.g., `print("Analysis complete")`) or a simple data-inspection snippet.
 A problem is trivial ONLY if it requires a single formula, a simple plot, or a direct lookup with no optimization model, no CAD geometry, and no multi-part logic.
 
 FINAL STEP — SUMMARY:
@@ -333,8 +338,12 @@ def get_storage_client():
     global storage_client 
     if storage_client is None:
         try:
-            # Explicitly load the JSON key since we are baking it into the container
-            if os.path.exists("gcs-key.json"):
+            # Load the JSON key from the environment
+            gcs_key = os.environ.get("GCS_KEY_JSON")
+            if gcs_key:
+                creds = json.loads(gcs_key)
+                storage_client = storage.Client.from_service_account_info(creds)
+            elif os.path.exists("gcs-key.json"):
                 storage_client = storage.Client.from_service_account_json("gcs-key.json")
             elif os.path.exists("/app/gcs-key.json"): 
                 storage_client = storage.Client.from_service_account_json("/app/gcs-key.json")
